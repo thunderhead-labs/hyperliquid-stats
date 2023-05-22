@@ -1,0 +1,7 @@
+boto3==1.26.135
+fastapi==0.95.2
+pandas==1.5.2
+slack_sdk==3.19.5
+SQLAlchemy==1.4.44
+uvicorn==0.22.0
+lz4==4.3.2

@@ -16,6 +16,8 @@ table_to_file_name_map = {
     "non_mm_trades": "non_mm_trades",
     "non_mm_ledger_updates": "ledger_updates",
     "liquidations": "liquidations",
+    "funding": "funding",
+    "account_values": "account_values",
 }
 
 # Load configuration from JSON file
@@ -81,12 +83,13 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
 
     if "trades" in file_name:
         df_agg = (
-            df.groupby(["coin", "side", "crossed"])
+            df.groupby(["user", "coin", "side", "crossed"])
             .agg({"px": "mean", "sz": "sum"})
             .reset_index()
         )
-        df_agg.columns = ["coin", "side", "crossed", "mean_px", "sum_sz"]
+        df_agg.columns = ["user", "coin", "side", "crossed", "mean_px", "sum_sz"]
         df_agg["time"] = date
+        df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
         df_agg.to_sql(
             "non_mm_trades_cache", con=engine, if_exists="append", index=False
         )
@@ -105,17 +108,26 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
 
     elif "liquidations" in file_name:
         df_agg = (
-            df.groupby("leverage_type")
+            df.groupby(["user", "leverage_type"])
             .agg({"liquidated_ntl_pos": "sum", "liquidated_account_value": "sum"})
             .reset_index()
         )
         df_agg.columns = [
+            "user",
             "leverage_type",
             "sum_liquidated_ntl_pos",
             "sum_liquidated_account_value",
         ]
         df_agg["time"] = date
         df_agg.to_sql("liquidations_cache", con=engine, if_exists="append", index=False)
+
+    elif "funding" in file_name:
+        # TODO: Add funding cache table
+        pass
+
+    elif "account_values" in file_name:
+        # TODO: Add account values cache table
+        pass
 
 
 def main():

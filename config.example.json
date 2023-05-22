@@ -1,0 +1,8 @@
+{
+  "aws_access_key_id": "aws_access_key_id",
+  "aws_secret_access_key": "aws_secret_access_key",
+  "slack_token": "slack_token",
+  "bucket_name": "bucket_name",
+  "db_uri": "postgresql://{username}:{password}@{host}:{port}/{db_name}",
+  "tables": ["non_mm_trades", "liquidations", "non_mm_ledger_updates", "funding", "account_values"]
+}
