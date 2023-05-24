@@ -1,10 +1,9 @@
 import json
 from typing import Optional, List
-
 from fastapi import FastAPI, Query
-from sqlalchemy import create_engine, Table, MetaData, distinct
+from sqlalchemy import create_engine, Table, MetaData, distinct, Date
 from sqlalchemy.sql import select, func
-from sqlalchemy.sql.expression import desc
+from sqlalchemy.sql.expression import desc, cast
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -15,6 +14,7 @@ engine = create_engine(DATABASE_URL)
 
 metadata = MetaData()
 
+non_mm_ledger_updates = Table("non_mm_ledger_updates", metadata, autoload_with=engine)
 non_mm_trades_cache = Table("non_mm_trades_cache", metadata, autoload_with=engine)
 non_mm_ledger_updates_cache = Table(
     "non_mm_ledger_updates_cache", metadata, autoload_with=engine
@@ -73,6 +73,38 @@ async def get_total_volume(
         return {"total_usd_volume": result.scalar()}
 
 
+@app.get("/hyperliquid/total_deposits")
+async def get_total_deposits(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        query = select(
+            func.sum(non_mm_ledger_updates.c.delta_usd).label(
+                "total_deposits"
+            )
+        ).where(non_mm_ledger_updates.c.delta_usd > 0).select_from(non_mm_ledger_updates)
+        query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
+        result = connection.execute(query)
+        return {"total_deposits": result.scalar()}
+
+
+@app.get("/hyperliquid/total_withdrawals")
+async def get_total_withdrawals(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        query = select(
+            func.sum(non_mm_ledger_updates.c.delta_usd).label(
+                "total_withdrawals"
+            )
+        ).where(non_mm_ledger_updates.c.delta_usd < 0).select_from(non_mm_ledger_updates)
+        query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
+        result = connection.execute(query)
+        return {"total_withdrawals": result.scalar()}
+
+
 @app.get("/hyperliquid/total_notional_liquidated")
 async def get_total_notional_liquidated(
     start_date: Optional[str] = None,
@@ -87,6 +119,45 @@ async def get_total_notional_liquidated(
         query = apply_filters(query, liquidations_cache, start_date, end_date)
         result = connection.execute(query)
         return {"total_notional_liquidated": result.scalar()}
+
+
+def get_cumulative_chart_data(table, column, start_date, end_date, coins):
+    with engine.begin() as connection:
+        # First, create a subquery that groups by date and sums the column
+        subquery = select(
+            table.c.time,
+            func.sum(table.c[column]).label(column),
+        ).group_by(table.c.time)
+        subquery = apply_filters(subquery, table, start_date, end_date, coins)
+        subquery = subquery.alias('subquery')
+
+        # Then, select from the subquery and calculate the cumulative sum
+        query = select(
+            subquery.c.time,
+            func.sum(subquery.c[column])
+            .over(order_by=subquery.c.time)
+            .label(f"cumulative_{column}"),
+        ).order_by(subquery.c.time)
+
+        result = connection.execute(query)
+        chart_data = [
+            {"time": row.time, f"cumulative_{column}": row[f"cumulative_{column}"]}
+            for row in result
+        ]
+        return chart_data
+
+
+@app.get("/hyperliquid/cumulative_usd_volume")
+async def get_cumulative_usd_volume(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = Query(None),
+):
+    return {
+        "chart_data": get_cumulative_chart_data(
+            non_mm_trades_cache, "usd_volume", start_date, end_date, coins
+        )
+    }
 
 
 @app.get("/hyperliquid/daily_trades")
@@ -112,6 +183,18 @@ async def get_daily_trades(
         return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/cumulative_liquidated_notional")
+async def get_cumulative_liquidated_notional(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    return {
+        "chart_data": get_cumulative_chart_data(
+            liquidations_cache, "sum_liquidated_ntl_pos", start_date, end_date, None
+        )
+    }
+
+
 @app.get("/hyperliquid/daily_unique_users")
 async def get_daily_unique_users(
     start_date: Optional[str] = None,
@@ -131,6 +214,69 @@ async def get_daily_unique_users(
         result = connection.execute(query)
         chart_data = [
             {"time": row.time, "daily_unique_users": row.daily_unique_users}
+            for row in result
+        ]
+        return {"chart_data": chart_data}
+
+
+@app.get("/hyperliquid/cumulative_users")
+async def get_cumulative_users(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = Query(None),
+):
+    with engine.begin() as connection:
+        query = (
+            select(
+                non_mm_trades_cache.c.time,
+                func.sum(func.count(distinct(non_mm_trades_cache.c.user)))
+                .over(order_by=cast(non_mm_trades_cache.c.time, Date))
+                .label("cumulative_users"),
+            )
+            .group_by(non_mm_trades_cache.c.time)
+            .order_by(non_mm_trades_cache.c.time)
+        )
+        query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
+        result = connection.execute(query)
+        chart_data = [
+            {"time": row.time, "cumulative_users": row.cumulative_users}
+            for row in result
+        ]
+        return {"chart_data": chart_data}
+
+
+@app.get("/hyperliquid/cumulative_inflow")
+async def get_cumulative_inflow(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        base_query = (
+            select(
+                non_mm_ledger_updates_cache.c.time,
+                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label("inflow_per_day")
+            )
+            .group_by(non_mm_ledger_updates_cache.c.time)
+            .order_by(non_mm_ledger_updates_cache.c.time)
+        )
+
+        filtered_base_query = apply_filters(base_query, non_mm_ledger_updates_cache, start_date, end_date)
+
+        query = filtered_base_query.alias('inflows_per_day')
+
+        cumulative_query = (
+            select(
+                query.c.time,
+                func.sum(query.c.inflow_per_day)
+                .over(order_by=query.c.time)
+                .label("cumulative_inflow"),
+            )
+            .order_by(query.c.time)
+        )
+
+        result = connection.execute(cumulative_query)
+        chart_data = [
+            {"time": row.time, "cumulative_inflow": row.cumulative_inflow}
             for row in result
         ]
         return {"chart_data": chart_data}
@@ -163,6 +309,52 @@ async def get_largest_users_by_usd_volume(
             non_mm_trades_cache, "user", "usd_volume", start_date, end_date, coins, 10
         )
     }
+
+
+@app.get("/hyperliquid/largest_user_depositors")
+async def get_largest_user_depositors(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    return {
+        "table_data": get_table_data(
+            non_mm_ledger_updates_cache, "user", "sum_delta_usd", start_date, end_date, None, 10
+        )
+    }
+
+
+@app.get("/hyperliquid/largest_liquidated_notional_by_user")
+async def get_largest_liquidated_notional_by_user(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    return {
+        "table_data": get_table_data(
+            liquidations_cache, "user", "sum_liquidated_account_value", start_date, end_date, None, 10
+        )
+    }
+
+
+@app.get("/hyperliquid/largest_user_trade_count")
+async def get_largest_user_trade_count(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = Query(None),
+):
+    with engine.begin() as connection:
+        query = (
+            select(non_mm_trades_cache.c["user"], func.count(non_mm_trades_cache.c["user"]).label("trade_count"))
+            .group_by(non_mm_trades_cache.c["user"])
+            .order_by(desc("trade_count"))
+            .limit(10)
+        )
+        query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
+        result = connection.execute(query)
+        table_data = [
+            {"name": row["user"], "value": row["trade_count"]} for row in result
+        ]
+        return {"table_data": table_data}
+
 
 if __name__ == "__main__":
     import uvicorn
