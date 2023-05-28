@@ -1,9 +1,10 @@
 import json
+import statistics
 from typing import Optional, List
+
 from fastapi import FastAPI, Query
-from sqlalchemy import create_engine, Table, MetaData, distinct, Date
-from sqlalchemy.sql import select, func
-from sqlalchemy.sql.expression import desc, cast
+from sqlalchemy import create_engine, Table, MetaData, distinct, func
+from sqlalchemy.sql.expression import desc, select
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -20,6 +21,8 @@ non_mm_ledger_updates_cache = Table(
     "non_mm_ledger_updates_cache", metadata, autoload_with=engine
 )
 liquidations_cache = Table("liquidations_cache", metadata, autoload_with=engine)
+account_values_cache = Table('account_values_cache', metadata, autoload_with=engine)
+funding_cache = Table('funding_cache', metadata, autoload_with=engine)
 
 hlp_vault_addresses = [
     "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
@@ -48,9 +51,7 @@ async def get_total_users(
     coins: Optional[List[str]] = Query(None),
 ):
     with engine.begin() as connection:
-        query = select(func.count().label("total_users")).select_from(
-            non_mm_trades_cache
-        )
+        query = select(func.count(distinct(non_mm_trades_cache.c.user)).label("total_users"))
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         result = connection.execute(query)
         return {"total_users": result.scalar()}
@@ -183,6 +184,46 @@ async def get_daily_trades(
         return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/user_pnl")
+async def get_user_pnl(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        # Exclude vault addresses and filter on 'is_vault=false'
+        query = select([
+            account_values_cache.c.time,
+            account_values_cache.c.user,
+            (account_values_cache.c.sum_account_value - account_values_cache.c.sum_cum_ledger).label('pnl')
+        ]).where(account_values_cache.c.user.notin_(hlp_vault_addresses)).where(account_values_cache.c.is_vault == False)
+
+        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+
+        results = connection.execute(query)
+        results = [{"time": row[0], "user": row[1], "pnl": row[2]} for row in results]
+        return results
+
+
+@app.get("/hyperliquid/hlp_liquidator_pnl")
+async def get_hlp_liquidator_pnl(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        # Include only HLP vault addresses
+        query = select([
+            account_values_cache.c.time,
+            account_values_cache.c.user,
+            (account_values_cache.c.sum_account_value - account_values_cache.c.sum_cum_ledger).label('pnl')
+        ]).where(account_values_cache.c.user.in_(hlp_vault_addresses))
+
+        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+
+        results = connection.execute(query)
+        results = [{"time": row[0], "user": row[1], "pnl": row[2]} for row in results]
+        return results
+
+
 @app.get("/hyperliquid/cumulative_liquidated_notional")
 async def get_cumulative_liquidated_notional(
     start_date: Optional[str] = None,
@@ -219,29 +260,46 @@ async def get_daily_unique_users(
         return {"chart_data": chart_data}
 
 
-@app.get("/hyperliquid/cumulative_users")
-async def get_cumulative_users(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+@app.get("/hyperliquid/cumulative_unique_users")
+async def get_cumulative_unique_users(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
     with engine.begin() as connection:
-        query = (
-            select(
-                non_mm_trades_cache.c.time,
-                func.sum(func.count(distinct(non_mm_trades_cache.c.user)))
-                .over(order_by=cast(non_mm_trades_cache.c.time, Date))
-                .label("cumulative_users"),
-            )
-            .group_by(non_mm_trades_cache.c.time)
-            .order_by(non_mm_trades_cache.c.time)
-        )
-        query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
-        result = connection.execute(query)
-        chart_data = [
-            {"time": row.time, "cumulative_users": row.cumulative_users}
-            for row in result
-        ]
+        # Apply filters to non_mm_trades_cache
+        filtered_trades = non_mm_trades_cache.select()
+        filtered_trades = apply_filters(filtered_trades, non_mm_trades_cache, start_date, end_date, coins)
+
+        # Create subquery to get the first trade date for each user
+        subquery = select([
+            filtered_trades.c.user,
+            func.min(filtered_trades.c.time).label('first_trade_date')
+        ]).group_by(filtered_trades.c.user)
+
+        # Convert to alias for later usage
+        user_first_trade_dates = subquery.alias('user_first_trade_dates')
+
+        # Now select the date and count distinct users by date
+        query = select([
+            user_first_trade_dates.c.first_trade_date.label('date'),
+            func.count(user_first_trade_dates.c.user).label('daily_unique_users')
+        ]).group_by(user_first_trade_dates.c.first_trade_date)
+
+        # Then select date, daily_unique_users, and the cumulative count of unique users
+        final_query = select([
+            query.c.date,
+            query.c.daily_unique_users,
+            func.sum(query.c.daily_unique_users).over(order_by=query.c.date).label('cumulative_unique_users')
+        ])
+
+        # Execute the final query
+        result = connection.execute(final_query)
+
+        # Convert result to JSON-serializable format
+        chart_data = [{"date": row.date, "daily_unique_users": row.daily_unique_users,
+                       "cumulative_unique_users": row.cumulative_unique_users} for row in result]
+
         return {"chart_data": chart_data}
 
 

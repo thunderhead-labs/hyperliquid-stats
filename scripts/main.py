@@ -11,6 +11,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 path = os.path.dirname(os.path.abspath(__file__))
+slack_alerts_channel = "#hyperliquid-alerts"
 
 table_to_file_name_map = {
     "non_mm_trades": "non_mm_trades",
@@ -58,12 +59,13 @@ def get_latest_date(db_uri: str, table_name: str):
 
 def send_alert(message: str):
     slack_token = config["slack_token"]
-    client = WebClient(token=slack_token)
+    if slack_token != "":
+        client = WebClient(token=slack_token)
 
-    try:
-        response = client.chat_postMessage(channel="#hyperliquid-alerts", text=message)
-    except SlackApiError as e:
-        print(f"Error sending alert: {e.response['error']}")
+        try:
+            response = client.chat_postMessage(channel=slack_alerts_channel, text=message)
+        except SlackApiError as e:
+            print(f"Error sending alert: {e.response['error']}")
 
 
 def generate_dates(start_date: datetime.date):
@@ -122,12 +124,30 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
         df_agg.to_sql("liquidations_cache", con=engine, if_exists="append", index=False)
 
     elif "funding" in file_name:
-        # TODO: Add funding cache table
-        pass
+        df_agg = (
+            df.groupby(["asset"])
+            .agg({"funding": "sum", "premium": "sum"})
+            .reset_index()
+        )
+        df_agg.columns = ["asset", "sum_funding", "sum_premium"]
+        df_agg["time"] = date
+        df_agg.to_sql("funding_cache", con=engine, if_exists="append", index=False)
 
     elif "account_values" in file_name:
-        # TODO: Add account values cache table
-        pass
+        df_agg = (
+            df.groupby(["user", "is_vault"])
+            .agg({"account_value": "sum", "cum_vlm": "sum", "cum_ledger": "sum"})
+            .reset_index()
+        )
+        df_agg.columns = [
+            "user",
+            "is_vault",
+            "sum_account_value",
+            "sum_cum_vlm",
+            "sum_cum_ledger",
+        ]
+        df_agg["time"] = date
+        df_agg.to_sql("account_values_cache", con=engine, if_exists="append", index=False)
 
 
 def main():
@@ -145,7 +165,7 @@ def main():
         )
         dates = generate_dates(latest_date)
         if not len(dates):
-            # send_alert(f"Nothing to process for {table} at {latest_date}")
+            send_alert(f"Nothing to process for {table} at {latest_date}")
             print(f"Nothing to process for {table} at {latest_date}")
         for date in dates[1:]:
             try:
@@ -158,12 +178,12 @@ def main():
                     os.remove(tmp_file_path)
                 else:
                     raise Exception(f"Error: {tmp_file_path} not found")
-                # send_alert(f"Data processing completed successfully for {date, table}!")
+                send_alert(f"Data processing completed successfully for {date, table}!")
                 print(f"Data processing completed successfully for {date, table}!")
             except Exception as e:
-                # send_alert(
-                #     f"Data processing for {table} as {date} failed with error: {e}"
-                # )
+                send_alert(
+                    f"Data processing for {table} as {date} failed with error: {e}"
+                )
                 print(
                     f"Data processing for {table} as {date} failed with error: {e}"
                 )
