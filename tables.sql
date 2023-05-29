@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS public.non_mm_trades_cache
     crossed boolean NOT NULL,
     mean_px double precision NOT NULL,
     sum_sz double precision NOT NULL,
-    usd_volume double precision NOT NULL
+    usd_volume double precision NOT NULL,
+    group_count integer NOT NULL
 );
 
 CREATE INDEX idx_non_mm_trades_cache
@@ -101,13 +102,51 @@ CREATE INDEX idx_assetdata_asset ON funding (asset);
 CREATE TABLE IF NOT EXISTS public.funding_cache
 (
     "time" timestamp NOT NULL,
-    asset INT NOT NULL,
+    coin INT NOT NULL,
     sum_funding double precision NOT NULL,
     sum_premium double precision NOT NULL
 );
 
 CREATE INDEX idx_funding_cache
-ON public.funding_cache ("time", asset);
+ON public.funding_cache ("time", coin);
+
+CREATE TABLE IF NOT EXISTS public.account_ctxs
+(
+    "time" timestamp with time zone NOT NULL,
+    "asset" integer NOT NULL,
+    "funding" double precision NOT NULL,
+    "open_interest" double precision NOT NULL,
+    "prev_day_px" double precision NOT NULL,
+    "day_ntl_vlm" double precision NOT NULL,
+    "premium" double precision NOT NULL,
+    "oracle_px" double precision NOT NULL,
+    "mark_px" double precision NOT NULL,
+    "mid_px" double precision NOT NULL,
+    "impact_bid_px" double precision NOT NULL,
+    "impact_ask_px" double precision NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_ctxs_time ON public.account_ctxs ("time");
+CREATE INDEX IF NOT EXISTS idx_account_ctxs_asset ON public.account_ctxs ("asset");
+
+CREATE TABLE IF NOT EXISTS public.account_ctxs_cache
+(
+    "time" timestamp NOT NULL,
+    "coin" integer NOT NULL,
+    sum_funding double precision NOT NULL,
+    sum_open_interest double precision NOT NULL,
+    avg_prev_day_px double precision NOT NULL,
+    sum_day_ntl_vlm double precision NOT NULL,
+    avg_premium double precision NOT NULL,
+    avg_oracle_px double precision NOT NULL,
+    avg_mark_px double precision NOT NULL,
+    avg_mid_px double precision NOT NULL,
+    avg_impact_bid_px double precision NOT NULL,
+    avg_impact_ask_px double precision NOT NULL,
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_ctxs_cache_time ON public.account_ctxs_cache ("time");
+CREATE INDEX IF NOT EXISTS idx_account_ctxs_cache_coin ON public.account_ctxs_cache ("coin");
 
 CREATE TABLE IF NOT EXISTS public.account_values_cache
 (
