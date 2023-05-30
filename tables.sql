@@ -5,14 +5,14 @@ CREATE TABLE IF NOT EXISTS public.liquidations
     liquidated_ntl_pos double precision NOT NULL,
     liquidated_account_value double precision NOT NULL,
     leverage_type character varying(255) COLLATE pg_catalog."default" NOT NULL
-)
+);
 
 CREATE TABLE IF NOT EXISTS public.non_mm_ledger_updates
 (
     "time" timestamp with time zone NOT NULL,
     "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
     delta_usd double precision NOT NULL
-)
+);
 
 CREATE TABLE IF NOT EXISTS public.non_mm_trades
 (
@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS public.non_mm_trades
     side character varying(255) COLLATE pg_catalog."default" NOT NULL,
     px double precision NOT NULL,
     sz double precision NOT NULL,
-    crossed boolean NOT NULL
-)
+    crossed boolean NOT NULL,
+    special_trade_type character varying(255) COLLATE pg_catalog."default" NOT NULL
+);
 
 -- create indexes for liquidations table
 CREATE INDEX IF NOT EXISTS idx_liquidations_time ON public.liquidations ("time");
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS public.non_mm_trades_cache
     coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
     side character varying(255) COLLATE pg_catalog."default" NOT NULL,
     crossed boolean NOT NULL,
+    special_trade_type character varying(255) COLLATE pg_catalog."default" NOT NULL,
     mean_px double precision NOT NULL,
     sum_sz double precision NOT NULL,
     usd_volume double precision NOT NULL,
@@ -91,18 +93,18 @@ CREATE INDEX idx_userdata_user ON account_values ("user");
 
 CREATE TABLE funding (
     "time" TIMESTAMP WITH TIME ZONE NOT NULL,
-    asset INT NOT NULL,
+    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
     funding FLOAT NOT NULL,
     premium FLOAT NOT NULL
 );
 
 CREATE INDEX idx_assetdata_time ON funding ("time");
-CREATE INDEX idx_assetdata_asset ON funding (asset);
+CREATE INDEX idx_assetdata_asset ON funding (coin);
 
 CREATE TABLE IF NOT EXISTS public.funding_cache
 (
     "time" timestamp NOT NULL,
-    coin INT NOT NULL,
+    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
     sum_funding double precision NOT NULL,
     sum_premium double precision NOT NULL
 );
@@ -110,10 +112,10 @@ CREATE TABLE IF NOT EXISTS public.funding_cache
 CREATE INDEX idx_funding_cache
 ON public.funding_cache ("time", coin);
 
-CREATE TABLE IF NOT EXISTS public.account_ctxs
+CREATE TABLE IF NOT EXISTS public.asset_ctxs
 (
     "time" timestamp with time zone NOT NULL,
-    "asset" integer NOT NULL,
+    "coin" character varying(255) COLLATE pg_catalog."default" NOT NULL,
     "funding" double precision NOT NULL,
     "open_interest" double precision NOT NULL,
     "prev_day_px" double precision NOT NULL,
@@ -126,13 +128,13 @@ CREATE TABLE IF NOT EXISTS public.account_ctxs
     "impact_ask_px" double precision NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_account_ctxs_time ON public.account_ctxs ("time");
-CREATE INDEX IF NOT EXISTS idx_account_ctxs_asset ON public.account_ctxs ("asset");
+CREATE INDEX IF NOT EXISTS idx_asset_ctxs_time ON public.asset_ctxs ("time");
+CREATE INDEX IF NOT EXISTS idx_asset_ctxs_coin ON public.asset_ctxs ("coin");
 
-CREATE TABLE IF NOT EXISTS public.account_ctxs_cache
+CREATE TABLE IF NOT EXISTS public.asset_ctxs_cache
 (
     "time" timestamp NOT NULL,
-    "coin" integer NOT NULL,
+    "coin" character varying(255) COLLATE pg_catalog."default" NOT NULL,
     sum_funding double precision NOT NULL,
     sum_open_interest double precision NOT NULL,
     avg_prev_day_px double precision NOT NULL,
@@ -142,11 +144,11 @@ CREATE TABLE IF NOT EXISTS public.account_ctxs_cache
     avg_mark_px double precision NOT NULL,
     avg_mid_px double precision NOT NULL,
     avg_impact_bid_px double precision NOT NULL,
-    avg_impact_ask_px double precision NOT NULL,
+    avg_impact_ask_px double precision NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_account_ctxs_cache_time ON public.account_ctxs_cache ("time");
-CREATE INDEX IF NOT EXISTS idx_account_ctxs_cache_coin ON public.account_ctxs_cache ("coin");
+CREATE INDEX IF NOT EXISTS idx_asset_ctxs_cache_time ON public.asset_ctxs_cache ("time");
+CREATE INDEX IF NOT EXISTS idx_asset_ctxs_cache_coin ON public.asset_ctxs_cache ("coin");
 
 CREATE TABLE IF NOT EXISTS public.account_values_cache
 (
@@ -160,3 +162,38 @@ CREATE TABLE IF NOT EXISTS public.account_values_cache
 
 CREATE INDEX idx_account_values_cache
 ON public.account_values_cache ("time", "user", is_vault);
+
+CREATE TABLE IF NOT EXISTS public.market_data_snapshot
+(
+    id SERIAL PRIMARY KEY,
+    "time" timestamp with time zone NOT NULL,
+    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    channel character varying(255) COLLATE pg_catalog."default" NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.market_data_snapshot_details
+(
+    id SERIAL PRIMARY KEY,
+    snapshot_id INTEGER,
+    px double precision NOT NULL,
+    sz double precision NOT NULL,
+    n INTEGER NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES public.market_data_snapshot (id)
+);
+
+CREATE TABLE IF NOT EXISTS public.market_data_snapshot_cache
+(
+    "time" timestamp NOT NULL,
+    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    channel character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    n INTEGER NOT NULL,
+    mean_px double precision NOT NULL,
+    sum_sz double precision NOT NULL
+);
+
+CREATE INDEX idx_market_data_snapshot_time ON public.market_data_snapshot ("time");
+CREATE INDEX idx_market_data_snapshot_user ON public.market_data_snapshot ("user");
+CREATE INDEX idx_market_data_snapshot_cache
+ON public.market_data_snapshot_cache ("time", "user", coin, channel);
