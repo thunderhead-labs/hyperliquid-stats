@@ -3,7 +3,7 @@ import statistics
 from typing import Optional, List
 
 from fastapi import FastAPI, Query
-from sqlalchemy import create_engine, Table, MetaData, distinct, func
+from sqlalchemy import create_engine, Table, MetaData, distinct, func, literal
 from sqlalchemy.sql.expression import desc, select
 
 # Load configuration from JSON file
@@ -234,6 +234,7 @@ async def get_daily_usd_volume_by_crossed(
         return {"chart_data": chart_data}
 
 
+# TODO figure out other
 @app.get("/hyperliquid/daily_usd_volume_by_user")
 async def get_daily_usd_volume_by_user(
     start_date: Optional[str] = None,
@@ -242,46 +243,69 @@ async def get_daily_usd_volume_by_user(
     with engine.begin() as connection:
         subquery = (
             select(
+                non_mm_trades_cache.c.time,
                 non_mm_trades_cache.c.user,
-                func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume"),
+                func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume")
             )
-            .group_by(non_mm_trades_cache.c.user)
-            .order_by(desc("total_usd_volume"))
-            .limit(10)
-            .alias("top_users")
+            .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
+            .alias("daily_volume")
         )
 
-        other_query = (
+        inner_query = (
             select(
-                func.sum(subquery.c.total_usd_volume).label("total_usd_volume"),
+                subquery.c.time.label("date"),
+                subquery.c.user,
+                subquery.c.total_usd_volume,
+                func.rank().over(
+                    partition_by=subquery.c.time,
+                    order_by=subquery.c.total_usd_volume.desc()
+                ).label("user_rank")
             )
             .select_from(subquery)
-            .alias("other_users")
+            .where(subquery.c.time.between(start_date, end_date))  # Apply date filtering in the subquery
         )
 
-        union_query = select(
-            subquery.c.user.label("user"),
-            subquery.c.total_usd_volume.label("usd_volume"),
-        ).select_from(subquery).union(
+        query = (
             select(
-                "Other",
-                other_query.c.total_usd_volume.label("usd_volume"),
-            ).select_from(other_query)
-        ).alias("user_usd_volume")
-
-        final_query = (
-            select(
-                union_query.c.user,
-                union_query.c.usd_volume,
+                inner_query.c.date,
+                inner_query.c.user,
+                inner_query.c.total_usd_volume
             )
-            .order_by(desc(union_query.c.usd_volume))
+            .select_from(inner_query)
+            .where(inner_query.c.user_rank <= 10)  # Apply user rank filtering
+            .order_by(inner_query.c.date, inner_query.c.total_usd_volume.desc())
         )
 
-        final_query = apply_filters(final_query, non_mm_trades_cache, start_date, end_date)
+        # Calculate the sum of USD volume for the top 10 users per day
+        top_10_usd_volume_subquery = (
+            select(
+                inner_query.c.date.label("date"),
+                func.sum(inner_query.c.total_usd_volume).label("top_10_usd_volume")
+            )
+            .select_from(inner_query)
+            .where(inner_query.c.user_rank <= 10)
+            .group_by(inner_query.c.date)
+            .alias("top_10_usd_volume")
+        )
 
-        result = connection.execute(final_query)
+        # Add the "Other" row per day
+        other_subquery = (
+            select(
+                inner_query.c.date,
+                literal("Other").label("user"),
+                (top_10_usd_volume_subquery.c.top_10_usd_volume - func.coalesce(func.sum(inner_query.c.total_usd_volume), 0)).label("total_usd_volume")
+            )
+            .select_from(inner_query)
+            .join(top_10_usd_volume_subquery, inner_query.c.date == top_10_usd_volume_subquery.c.date)
+            .where(inner_query.c.user_rank > 10)  # Filter out the top 10 users
+            .group_by(inner_query.c.date, top_10_usd_volume_subquery.c.top_10_usd_volume)
+        )
+
+        query = query.union(other_subquery).order_by(query.c.date)
+
+        result = connection.execute(query)
         chart_data = [
-            {"user": row.user, "daily_usd_volume": row.usd_volume} for row in result
+            {"date": row.date, "user": row.user, "daily_usd_volume": row.total_usd_volume} for row in result
         ]
         return {"chart_data": chart_data}
 
@@ -357,54 +381,79 @@ async def get_daily_trades_by_crossed(
         return {"chart_data": chart_data}
 
 
+# TODO figure out other
 @app.get("/hyperliquid/daily_trades_by_user")
 async def get_daily_trades_by_user(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
     with engine.begin() as connection:
         subquery = (
             select(
+                non_mm_trades_cache.c.time,
                 non_mm_trades_cache.c.user,
-                func.sum(non_mm_trades_cache.c.group_count).label("total_trades"),
+                func.sum(non_mm_trades_cache.c.group_count).label("total_group_count")
             )
-            .group_by(non_mm_trades_cache.c.user)
-            .order_by(desc("total_trades"))
-            .limit(10)
-            .alias("top_users")
+            .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
+            .alias("daily_group_count")
         )
 
-        other_query = (
+        inner_query = (
             select(
-                func.sum(subquery.c.total_trades).label("total_trades"),
+                subquery.c.time.label("date"),
+                subquery.c.user,
+                subquery.c.total_group_count,
+                func.rank().over(
+                    partition_by=subquery.c.time,
+                    order_by=subquery.c.total_group_count.desc()
+                ).label("user_rank")
             )
             .select_from(subquery)
-            .alias("other_users")
+            .where(subquery.c.time.between(start_date, end_date))  # Apply date filtering in the subquery
         )
 
-        union_query = select(
-            subquery.c.user.label("user"),
-            subquery.c.total_trades.label("trades"),
-        ).select_from(subquery).union(
+        query = (
             select(
-                "Other",
-                other_query.c.total_trades.label("trades"),
-            ).select_from(other_query)
-        ).alias("user_trades")
-
-        final_query = (
-            select(
-                union_query.c.user,
-                union_query.c.trades,
+                inner_query.c.date,
+                inner_query.c.user,
+                inner_query.c.total_group_count
             )
-            .order_by(desc(union_query.c.trades))
+            .select_from(inner_query)
+            .where(inner_query.c.user_rank <= 10)  # Apply user rank filtering
+            .order_by(inner_query.c.date, inner_query.c.total_group_count.desc())
         )
 
-        final_query = apply_filters(final_query, non_mm_trades_cache, start_date, end_date)
+        # Calculate the sum of group_count for the top 10 users per day
+        top_10_group_count_subquery = (
+            select(
+                inner_query.c.date.label("date"),
+                func.sum(inner_query.c.total_group_count).label("top_10_group_count")
+            )
+            .select_from(inner_query)
+            .where(inner_query.c.user_rank <= 10)
+            .group_by(inner_query.c.date)
+            .alias("top_10_group_count")
+        )
 
-        result = connection.execute(final_query)
+        # Add the "Other" row per day
+        other_subquery = (
+            select(
+                inner_query.c.date,
+                literal("Other").label("user"),
+                (top_10_group_count_subquery.c.top_10_group_count - func.coalesce(
+                    func.sum(inner_query.c.total_group_count), 0)).label("total_group_count")
+            )
+            .select_from(inner_query)
+            .join(top_10_group_count_subquery, inner_query.c.date == top_10_group_count_subquery.c.date)
+            .where(inner_query.c.user_rank > 10)  # Filter out the top 10 users
+            .group_by(inner_query.c.date, top_10_group_count_subquery.c.top_10_group_count)
+        )
+
+        query = query.union(other_subquery).order_by(query.c.date)
+
+        result = connection.execute(query)
         chart_data = [
-            {"user": row.user, "daily_trades": row.trades} for row in result
+            {"date": row.date, "user": row.user, "daily_group_count": row.total_group_count} for row in result
         ]
         return {"chart_data": chart_data}
 
@@ -419,6 +468,7 @@ def calculate_cumulative_pnl(chart_data):
     return cumulative_data
 
 
+# TODO fix this doesn't segregate by user
 @app.get("/hyperliquid/cumulative_user_pnl")
 async def get_cumulative_user_pnl(
     start_date: Optional[str] = None,
@@ -449,6 +499,7 @@ async def get_cumulative_user_pnl(
         return {"chart_data": cumulative_pnl}
 
 
+# TODO fix this, returns every user
 @app.get("/hyperliquid/user_pnl")
 async def get_user_pnl(
     start_date: Optional[str] = None,
@@ -469,6 +520,7 @@ async def get_user_pnl(
         return results
 
 
+# TODO fix this, returns every user
 @app.get("/hyperliquid/hlp_liquidator_pnl")
 async def get_hlp_liquidator_pnl(
     start_date: Optional[str] = None,
@@ -489,6 +541,7 @@ async def get_hlp_liquidator_pnl(
         return results
 
 
+# TODO fix this doesn't segregate by user
 @app.get("/hyperliquid/cumulative_hlp_liquidator_pnl")
 async def get_cumulative_user_pnl(
     start_date: Optional[str] = None,
@@ -568,34 +621,6 @@ async def get_daily_notional_liquidated_by_leverage_type(
             {
                 "time": row.time,
                 "leverage_type": row.leverage_type,
-                "daily_notional_liquidated": row.daily_notional_liquidated,
-            }
-            for row in result
-        ]
-        return {"chart_data": chart_data}
-
-
-@app.get("/hyperliquid/daily_notional_liquidated_by_coin")
-async def get_daily_notional_liquidated_by_coin(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-):
-    with engine.begin() as connection:
-        query = (
-            select(
-                liquidations_cache.c.time,
-                liquidations_cache.c.coin,
-                func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label("daily_notional_liquidated"),
-            )
-            .group_by(liquidations_cache.c.time, liquidations_cache.c.coin)
-            .order_by(liquidations_cache.c.time)
-        )
-        query = apply_filters(query, liquidations_cache, start_date, end_date)
-        result = connection.execute(query)
-        chart_data = [
-            {
-                "time": row.time,
-                "coin": row.coin,
                 "daily_notional_liquidated": row.daily_notional_liquidated,
             }
             for row in result
@@ -686,16 +711,14 @@ async def get_open_interest(
         end_date: Optional[str] = None,
         coins: Optional[List[str]] = None,
 ):
-    # TODO how to distinguish between long and short open interest?
     with engine.begin() as connection:
         query = (
             select(
                 asset_ctxs_cache.c.time,
                 asset_ctxs_cache.c.coin,
-                func.sum(asset_ctxs_cache.c.open_interest_long).label("total_long"),
-                func.sum(asset_ctxs_cache.c.open_interest_short).label("total_short"),
+                func.sum(asset_ctxs_cache.c.sum_open_interest).label("sum_open_interest"),
             )
-            .group_by(asset_ctxs_cache.c.time)
+            .group_by(asset_ctxs_cache.c.time, asset_ctxs_cache.c.coin)  # Include asset_ctxs_cache.coin in the GROUP BY clause
             .order_by(asset_ctxs_cache.c.time)
         )
 
@@ -703,7 +726,7 @@ async def get_open_interest(
 
         result = connection.execute(query)
         chart_data = [
-            {"time": row.time, "total_long": row.total_long, "total_short": row.total_short}
+            {"time": row.time, "coin": row.coin, "open_interest": row.sum_open_interest}
             for row in result
         ]
         return {"chart_data": chart_data}
