@@ -262,6 +262,14 @@ def process_file(db_uri: str, bucket_name: str, file_name: str, table: str, date
         raise Exception(f"Error: {tmp_file_path} not found")
 
 
+def delete_old_data_from_market_data_table(db_uri: str):
+    engine = create_engine(db_uri)
+    cutoff_date = datetime.date.today() - datetime.timedelta(days=14)
+    with engine.connect() as connection:
+        query = text(f"DELETE FROM market_data WHERE time < '{cutoff_date}'")
+        connection.execute(query)
+
+
 def main():
     bucket_name = config["bucket_name"]
     db_uri = config["db_uri"]
@@ -311,6 +319,8 @@ def main():
         if cache_max_date and cache_max_date.date() != latest_date:
             send_alert(
                 f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({latest_date})")
+        else:
+            delete_old_data_from_market_data_table(db_uri)
 
 
 if __name__ == "__main__":

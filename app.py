@@ -1,5 +1,4 @@
 import json
-import statistics
 from typing import Optional, List
 
 from fastapi import FastAPI, Query
@@ -11,7 +10,17 @@ with open("./config.json", "r") as config_file:
     config = json.load(config_file)
 
 DATABASE_URL = config["db_uri"]
-engine = create_engine(DATABASE_URL)
+
+# Maximum number of connections and maximum overflow
+max_connections = 100
+max_overflow = 50
+
+# Create the engine with connection pooling
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=max_connections,
+    max_overflow=max_overflow
+)
 
 metadata = MetaData()
 
@@ -24,7 +33,7 @@ liquidations_cache = Table("liquidations_cache", metadata, autoload_with=engine)
 account_values_cache = Table('account_values_cache', metadata, autoload_with=engine)
 funding_cache = Table('funding_cache', metadata, autoload_with=engine)
 asset_ctxs_cache = Table('asset_ctxs_cache', metadata, autoload_with=engine)
-# market_data_snapshot_cache = Table("market_data_snapshot_cache", metadata, autoload_with=engine)
+market_data_cache = Table("market_data_cache", metadata, autoload_with=engine)
 
 hlp_vault_addresses = [
     "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
@@ -468,9 +477,44 @@ def calculate_cumulative_pnl(chart_data):
     return cumulative_data
 
 
-# TODO fix this doesn't segregate by user
 @app.get("/hyperliquid/cumulative_user_pnl")
 async def get_cumulative_user_pnl(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        # Exclude vault addresses and filter on 'is_vault=false'
+        subquery = (
+            select([
+                account_values_cache.c.time,
+                func.sum(
+                    account_values_cache.c.sum_account_value
+                    - account_values_cache.c.sum_cum_ledger
+                ).label("daily_pnl"),
+            ])
+            .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
+            .where(account_values_cache.c.is_vault == False)
+            .group_by(account_values_cache.c.time)
+        ).alias('sub')
+
+        query = (
+            select([
+                subquery.c.time,
+                func.sum(subquery.c.daily_pnl).over(order_by=subquery.c.time).label("cumulative_pnl"),
+            ])
+        )
+
+        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+
+        results = connection.execute(query)
+        chart_data = [
+            {"time": row[0], "cumulative_pnl": row[1]} for row in results
+        ]
+        return chart_data
+
+
+@app.get("/hyperliquid/user_pnl")
+async def get_user_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
@@ -479,90 +523,86 @@ async def get_cumulative_user_pnl(
         query = (
             select([
                 account_values_cache.c.time,
-                account_values_cache.c.user,
-                (
+                func.sum(
                     account_values_cache.c.sum_account_value
                     - account_values_cache.c.sum_cum_ledger
-                ).label("pnl"),
+                ).label("total_pnl"),
             ])
             .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
             .where(account_values_cache.c.is_vault == False)
+            .group_by(account_values_cache.c.time)
         )
 
         query = apply_filters(query, account_values_cache, start_date, end_date, None)
 
         results = connection.execute(query)
         chart_data = [
-            {"time": row[0], "user": row[1], "pnl": row[2]} for row in results
+            {"time": row[0], "total_pnl": row[1]} for row in results
         ]
-        cumulative_pnl = calculate_cumulative_pnl(chart_data)
-        return {"chart_data": cumulative_pnl}
+        return chart_data
 
 
-# TODO fix this, returns every user
-@app.get("/hyperliquid/user_pnl")
-async def get_user_pnl(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-):
-    with engine.begin() as connection:
-        # Exclude vault addresses and filter on 'is_vault=false'
-        query = select([
-            account_values_cache.c.time,
-            account_values_cache.c.user,
-            (account_values_cache.c.sum_account_value - account_values_cache.c.sum_cum_ledger).label('pnl')
-        ]).where(account_values_cache.c.user.notin_(hlp_vault_addresses)).where(account_values_cache.c.is_vault == False)
-
-        query = apply_filters(query, account_values_cache, start_date, end_date, None)
-
-        results = connection.execute(query)
-        results = [{"time": row[0], "user": row[1], "pnl": row[2]} for row in results]
-        return results
-
-
-# TODO fix this, returns every user
 @app.get("/hyperliquid/hlp_liquidator_pnl")
 async def get_hlp_liquidator_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
     with engine.begin() as connection:
-        # Include only HLP vault addresses
-        query = select([
-            account_values_cache.c.time,
-            account_values_cache.c.user,
-            (account_values_cache.c.sum_account_value - account_values_cache.c.sum_cum_ledger).label('pnl')
-        ]).where(account_values_cache.c.user.in_(hlp_vault_addresses))
+        # Include only vault addresses
+        query = (
+            select([
+                account_values_cache.c.time,
+                func.sum(
+                    account_values_cache.c.sum_account_value
+                    - account_values_cache.c.sum_cum_ledger
+                ).label("total_pnl"),
+            ])
+            .where(account_values_cache.c.user.in_(hlp_vault_addresses))
+            .group_by(account_values_cache.c.time)
+        )
 
         query = apply_filters(query, account_values_cache, start_date, end_date, None)
 
         results = connection.execute(query)
-        results = [{"time": row[0], "user": row[1], "pnl": row[2]} for row in results]
-        return results
+        chart_data = [
+            {"time": row[0], "total_pnl": row[1]} for row in results
+        ]
+        return chart_data
 
 
-# TODO fix this doesn't segregate by user
 @app.get("/hyperliquid/cumulative_hlp_liquidator_pnl")
 async def get_cumulative_user_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
     with engine.begin() as connection:
-        # Include only HLP vault addresses
-        query = select([
-            account_values_cache.c.time,
-            account_values_cache.c.user,
-            (account_values_cache.c.sum_account_value - account_values_cache.c.sum_cum_ledger).label('pnl')
-        ]).where(account_values_cache.c.user.in_(hlp_vault_addresses))
+        # Include only vault addresses
+        subquery = (
+            select([
+                account_values_cache.c.time,
+                func.sum(
+                    account_values_cache.c.sum_account_value
+                    - account_values_cache.c.sum_cum_ledger
+                ).label("daily_pnl"),
+            ])
+            .where(account_values_cache.c.user.in_(hlp_vault_addresses))
+            .group_by(account_values_cache.c.time)
+        ).alias('sub')
+
+        query = (
+            select([
+                subquery.c.time,
+                func.sum(subquery.c.daily_pnl).over(order_by=subquery.c.time).label("cumulative_pnl"),
+            ])
+        )
 
         query = apply_filters(query, account_values_cache, start_date, end_date, None)
 
         results = connection.execute(query)
         chart_data = [
-            {"time": row[0], "user": row[1], "pnl": row[2]} for row in results
+            {"time": row[0], "cumulative_pnl": row[1]} for row in results
         ]
-        cumulative_pnl = calculate_cumulative_pnl(chart_data)
-        return {"chart_data": cumulative_pnl}
+        return chart_data
 
 
 @app.get("/hyperliquid/cumulative_liquidated_notional")
@@ -835,6 +875,73 @@ async def get_cumulative_inflow(
             for row in result
         ]
         return {"chart_data": chart_data}
+
+
+@app.get("/hyperliquid/daily_inflow")
+async def get_daily_inflow(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    with engine.begin() as connection:
+        base_query = (
+            select(
+                non_mm_ledger_updates_cache.c.time,
+                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label("inflow_per_day")
+            )
+            .group_by(non_mm_ledger_updates_cache.c.time)
+            .order_by(non_mm_ledger_updates_cache.c.time)
+        )
+
+        filtered_base_query = apply_filters(base_query, non_mm_ledger_updates_cache, start_date, end_date)
+
+        query = (
+            select(
+                filtered_base_query.c.time.label("time"),
+                filtered_base_query.c.inflow_per_day.label("inflow")
+            )
+            .alias('inflows_per_day')
+        )
+
+        result = connection.execute(query)
+        chart_data = [
+            {"time": row.time, "inflow": row.inflow}
+            for row in result
+        ]
+        return {"chart_data": chart_data}
+
+
+@app.get("/hyperliquid/liquidity_per_symbol")
+async def get_liquidity_per_symbol(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    notional_amounts: Optional[List[int]] = Query([1000, 3000, 10000]),
+):
+    with engine.begin() as connection:
+        data = {}
+        for notional in notional_amounts:
+            query = (
+                select(
+                    market_data_cache.c.time,
+                    market_data_cache.c.coin,
+                    func.avg(market_data_cache.c.median_liquidity / notional).label('average_liquidity_percentage')
+                )
+                .group_by(market_data_cache.c.time, market_data_cache.c.coin)
+                .order_by(market_data_cache.c.time, market_data_cache.c.coin)
+            )
+            query = apply_filters(query, market_data_cache, start_date, end_date)
+
+            result = connection.execute(query)
+
+            # Collect data
+            for row in result:
+                time, coin, average_liquidity_percentage = row
+                if coin not in data:
+                    data[coin] = {}
+                if notional not in data[coin]:
+                    data[coin][notional] = []
+                data[coin][notional].append({"time": time, "average_liquidity_percentage": average_liquidity_percentage})
+
+    return data
 
 
 def get_table_data(table, group_by_column, sum_column, start_date, end_date, coins, limit):
