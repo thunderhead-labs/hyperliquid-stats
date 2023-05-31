@@ -21,7 +21,7 @@ table_to_file_name_map = {
     "funding": "funding",
     "account_values": "account_values",
     "asset_ctxs": "asset_ctxs",
-    "market_data_snapshot_details": "market_data",
+    "market_data": "market_data",
 }
 
 # Load configuration from JSON file
@@ -68,20 +68,23 @@ def load_data_to_db(db_uri: str, table_name: str, file_name: str):
         with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
             for line in f:
                 json_line = json.loads(line)
+
+                # Calculate liquidity
+                liquidity = 0
+                for level in json_line['raw']['data']['levels']:
+                    for bid_or_ask in level:
+                        liquidity += float(bid_or_ask['px']) * float(bid_or_ask['sz'])
+
+                json_line['liquidity'] = liquidity
+
+                # Serialize the 'levels' list as a JSON string
+                json_line['levels'] = json.dumps(json_line['raw']['data']['levels'])
                 data.append(json_line)
         df = pd.json_normalize(data)
-        df_details = pd.DataFrame()  # Initialize an empty DataFrame
-
-        for idx, row in df.iterrows():
-            levels = row["raw.data.levels"]
-            for level in levels:
-                new_row = row.copy()  # Create a copy of the original row
-                new_row = new_row.to_frame().T  # Convert the copied row to a DataFrame
-                new_row[["px", "sz", "n"]] = pd.Series(level, index=["px", "sz", "n"])  # Assign level values to "px", "sz", and "n" columns
-                df_details = df_details.append(new_row, ignore_index=True)
-
+        df.drop("raw.data.levels", inplace=True, axis=1)
+        df.rename(columns={"raw.channel": "channel", "raw.data.coin": "coin", "raw.data.time": "raw_time"}, inplace=True)
         # Loading market_data_snapshot_details
-        df_details.to_sql('market_data_snapshot_details', con=engine, if_exists="append", index=False)
+        df.to_sql('market_data', con=engine, if_exists="append", index=False)
     else:
         with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
             df = pd.read_csv(f)
@@ -116,30 +119,22 @@ def generate_dates(start_date: datetime.date):
     return date_list
 
 
-def update_market_data_snapshot_cache(db_uri: str, date: datetime.date):
+def update_market_data_cache(db_uri: str, date: datetime.date):
     engine = create_engine(db_uri)
     with engine.connect() as connection:
-        # Aggregate data from market_data_snapshot and market_data_snapshot_details tables
+        # Aggregate data from market_data table
         query = text("""
-        INSERT INTO market_data_snapshot_cache (time, user, coin, channel, n, mean_px, sum_sz)
+        INSERT INTO market_data_cache (time, coin, median_liquidity)
         SELECT 
-            DATE(mds."time") AS time,
-            mds."user",
-            mds.coin,
-            mds.channel,
-            mds.n,
-            AVG(md_details.px) AS mean_px,
-            SUM(md_details.sz) AS sum_sz,
+            DATE(time) AS time,
+            coin,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY liquidity) AS median_liquidity
         FROM 
-            market_data_snapshot mds 
-        JOIN 
-            market_data_snapshot_details md_details 
-        ON 
-            mds.id = md_details.snapshot_id
+            market_data
         WHERE 
-            DATE(mds."time") = :date
+            DATE(time) = :date
         GROUP BY 
-            DATE(mds."time"), mds."user", mds.coin, mds.channel, mds.n
+            DATE(time), coin
         """)
         connection.execute(query, date=date)
 
@@ -147,7 +142,7 @@ def update_market_data_snapshot_cache(db_uri: str, date: datetime.date):
 def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
     # Reads the file saved by s3 of date and cache table with the new data
     if "market_data" in file_name:
-        update_market_data_snapshot_cache(db_uri, date)
+        update_market_data_cache(db_uri, date)
     else:
         engine = create_engine(db_uri)
         with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
@@ -288,10 +283,15 @@ def main():
         for date in dates[1:]:
             try:
                 if table_name == "market_data":
-                    for i in range(24):
-                        for asset in asset_coin_map.values():
-                            file_name = f"{table_name}/{date.strftime('%Y%m%d')}/{i}/Snap/{asset}.lz4"
-                            process_file(db_uri, bucket_name, file_name, table, date)
+
+                        for i in range(24):
+                            for asset in asset_coin_map.values():
+                                try:
+                                    file_name = f"{table_name}/{date.strftime('%Y%m%d')}/{i}/l2Book/{asset}.lz4"
+                                    process_file(db_uri, bucket_name, file_name, table, date)
+                                    print(f"Data processing completed successfully for {date, i, asset, table}!")
+                                except Exception as e:
+                                    print(f"Error processing {date, i, asset, table}!")
                 else:
                     file_name = f"{table_name}/{date.strftime('%Y%m%d')}.csv.lz4"
                     process_file(db_uri, bucket_name, file_name, table, date)

@@ -163,37 +163,26 @@ CREATE TABLE IF NOT EXISTS public.account_values_cache
 CREATE INDEX idx_account_values_cache
 ON public.account_values_cache ("time", "user", is_vault);
 
-CREATE TABLE IF NOT EXISTS public.market_data_snapshot
-(
-    id SERIAL PRIMARY KEY,
-    "time" timestamp with time zone NOT NULL,
-    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    channel character varying(255) COLLATE pg_catalog."default" NOT NULL
+CREATE TABLE market_data (
+    time TIMESTAMP WITH TIME ZONE NOT NULL,
+    ver_num INTEGER NOT NULL,
+    channel VARCHAR(255) NOT NULL,
+    coin VARCHAR(255) NOT NULL,
+    raw_time BIGINT NOT NULL,
+    liquidity double precision NOT NULL,
+    levels JSON NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS public.market_data_snapshot_details
-(
-    id SERIAL PRIMARY KEY,
-    snapshot_id INTEGER,
-    px double precision NOT NULL,
-    sz double precision NOT NULL,
-    n INTEGER NOT NULL,
-    FOREIGN KEY (snapshot_id) REFERENCES public.market_data_snapshot (id)
+CREATE INDEX idx_market_data_time ON market_data(time);
+CREATE INDEX idx_market_data_channel ON market_data(channel);
+CREATE INDEX idx_market_data_coin ON market_data(coin);
+
+CREATE TABLE market_data_cache (
+    time DATE NOT NULL,
+    coin VARCHAR(255) NOT NULL,
+    median_liquidity DOUBLE PRECISION NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS public.market_data_snapshot_cache
-(
-    "time" timestamp NOT NULL,
-    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    channel character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    n INTEGER NOT NULL,
-    mean_px double precision NOT NULL,
-    sum_sz double precision NOT NULL
-);
+CREATE INDEX idx_market_data_cache_time ON market_data_cache(time);
+CREATE INDEX idx_market_data_cache_coin ON market_data_cache(coin);
 
-CREATE INDEX idx_market_data_snapshot_time ON public.market_data_snapshot ("time");
-CREATE INDEX idx_market_data_snapshot_user ON public.market_data_snapshot ("user");
-CREATE INDEX idx_market_data_snapshot_cache
-ON public.market_data_snapshot_cache ("time", "user", coin, channel);
