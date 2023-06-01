@@ -4,6 +4,7 @@ from typing import Optional, List
 from fastapi import FastAPI, Query
 from sqlalchemy import create_engine, Table, MetaData, distinct, func, literal
 from sqlalchemy.sql.expression import desc, select
+from starlette.middleware.cors import CORSMiddleware
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -43,6 +44,16 @@ hlp_vault_addresses = [
 ]
 
 app = FastAPI()
+
+origins = config["origins"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def apply_filters(query, table, start_date, end_date, coins: Optional[List[str]] = None):

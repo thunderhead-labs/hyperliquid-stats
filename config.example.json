@@ -4,5 +4,6 @@
   "slack_token": "slack_token",
   "bucket_name": "bucket_name",
   "db_uri": "postgresql://{username}:{password}@{host}:{port}/{db_name}",
-  "tables": ["non_mm_trades", "liquidations", "non_mm_ledger_updates", "funding", "account_values", "asset_ctxs", "market_data"]
+  "tables": ["non_mm_trades", "liquidations", "non_mm_ledger_updates", "funding", "account_values", "asset_ctxs", "market_data"],
+  "origins": ["http://localhost", "http://localhost:3000"]
 }
