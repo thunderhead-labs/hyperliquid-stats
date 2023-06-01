@@ -87,10 +87,10 @@ HyperLiquid Stats provides an API that exposes various endpoints for retrieving 
    - **GET /hyperliquid/daily_trades_by_coin**: Retrieves the daily number of trades by coin. Overlay of bar chart in `Cumulative total trades` chart.
    - **GET /hyperliquid/daily_trades_by_crossed**: Retrieves the daily number of trades by crossed. Overlay of bar chart in `Cumulative total trades` chart.
    - **GET /hyperliquid/daily_trades_by_user**: Retrieves the daily number of trades by top 10 user and the rest are summed and marked as other. Overlay of bar chart in `Cumulative total trades` chart.
-   - **GET /hyperliquid/user_pnl**: Retrieves the profit and loss (PnL) for all users daily. The line chart of `User PnL` chart.
-   - **GET /hyperliquid/cumulative_user_pnl**: Retrieves the cumulative PnL for all users over time. The bar chart of `User PnL` chart.
-   - **GET /hyperliquid/hlp_liquidator_pnl**: Retrieves the PnL for liquidators daily. The line chart of `HLP Liquidator PnL` chart.
-   - **GET /hyperliquid/cumulative_hlp_liquidator_pnl**: Retrieves the cumulative PnL for liquidators over time. The bar chart of `HLP Liquidator PnL` chart.
+   - **GET /hyperliquid/user_pnl**: Retrieves the profit and loss (PnL) for all users daily. The bar chart of `User PnL` chart.
+   - **GET /hyperliquid/cumulative_user_pnl**: Retrieves the cumulative PnL for all users over time. The line chart of `User PnL` chart.
+   - **GET /hyperliquid/hlp_liquidator_pnl**: Retrieves the PnL for liquidators daily. The bar chart of `HLP Liquidator PnL` chart.
+   - **GET /hyperliquid/cumulative_hlp_liquidator_pnl**: Retrieves the cumulative PnL for liquidators over time. The line chart of `HLP Liquidator PnL` chart.
    - **GET /hyperliquid/cumulative_liquidated_notional**: Retrieves the cumulative liquidated notional value over time. The line chart of `Cumulative total notional liquidated` chart.
    - **GET /hyperliquid/daily_liquidated_notional**: Retrieves the daily liquidated notional value. The bar chart of `Cumulative total notional liquidated` chart.
    - **GET /hyperliquid/daily_notional_liquidated_by_leverage_type**: Retrieves the daily liquidated notional value by leverage type. Overlay of bar chart in `Cumulative total notional liquidated` chart.

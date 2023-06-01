@@ -1,0 +1,29 @@
+version: '3'
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+    depends_on:
+      - database
+  database:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: hyperliquid
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - database
+    volumes:
+      - ./scripts:/app/scripts
+      - ./config.json:/app/config.json
+    command: ["cron", "-f"]
