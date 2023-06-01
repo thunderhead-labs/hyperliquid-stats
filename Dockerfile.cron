@@ -9,4 +9,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["cron", "-f"]
+command: ["cron", "-f", "/app/scripts/cronjobs"]
