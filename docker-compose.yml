@@ -3,7 +3,7 @@ services:
   server:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.server.server
     ports:
       - 8000:8000
     depends_on:
@@ -20,7 +20,7 @@ services:
   cron:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.server.cron
     depends_on:
       - database
     volumes:
