@@ -72,39 +72,117 @@ HyperLiquid Stats provides an API that exposes various endpoints for retrieving 
 
 3. Once the project is running, you can access the API endpoints using a tool like cURL or a web browser. The available endpoints and their descriptions are as follows:
 
-   - **GET /hyperliquid/total_users**: Retrieves the total number of users.
-   - **GET /hyperliquid/total_usd_volume**: Retrieves the total USD trading volume.
-   - **GET /hyperliquid/total_deposits**: Retrieves the total amount of deposits.
-   - **GET /hyperliquid/total_withdrawals**: Retrieves the total amount of withdrawals.
-   - **GET /hyperliquid/total_notional_liquidated**: Retrieves the total notional value liquidated.
-   - **GET /hyperliquid/cumulative_usd_volume**: Retrieves the cumulative USD trading volume over time.
-   - **GET /hyperliquid/daily_usd_volume**: Retrieves the daily USD trading volume over time.
-   - **GET /hyperliquid/daily_usd_volume_by_coin**: Retrieves the daily USD trading volume by coin over time.
-   - **GET /hyperliquid/daily_usd_volume_by_crossed**: Retrieves the daily USD trading volume by crossed over time.
-   - **GET /hyperliquid/daily_usd_volume_by_user**: Retrieves the daily USD trading volume by top 10 user and the rest are summed and marked as other.
-   - **GET /hyperliquid/daily_trades**: Retrieves the daily number of trades.
-   - **GET /hyperliquid/daily_trades_by_coin**: Retrieves the daily number of trades by coin.
-   - **GET /hyperliquid/daily_trades_by_crossed**: Retrieves the daily number of trades by crossed.
-   - **GET /hyperliquid/daily_trades_by_user**: Retrieves the daily number of trades by top 10 user and the rest are summed and marked as other.
-   - **GET /hyperliquid/user_pnl**: Retrieves the profit and loss (PnL) for all users daily.
-   - **GET /hyperliquid/cumulative_user_pnl**: Retrieves the cumulative PnL for all users over time.
-   - **GET /hyperliquid/hlp_liquidator_pnl**: Retrieves the PnL for liquidators daily.
-   - **GET /hyperliquid/cumulative_hlp_liquidator_pnl**: Retrieves the cumulative PnL for liquidators over time.
-   - **GET /hyperliquid/cumulative_liquidated_notional**: Retrieves the cumulative liquidated notional value over time.
-   - **GET /hyperliquid/daily_unique_users**: Retrieves the daily number of unique users.
-   - **GET /hyperliquid/cumulative_users**: Retrieves the cumulative number of users over time.
-   - **GET /hyperliquid/cumulative_inflow**: Retrieves the cumulative inflow of funds over time.
-   - **GET /hyperliquid/open_interest**: Retrieves the open interest data.
-   - **GET /hyperliquid/funding_rate**: Retrieves the funding rate data.
-   - **GET /hyperliquid/cumulative_unique_users**: Retrieves the cumulative number of unique users over time.
-   - **GET /hyperliquid/cumulative_inflow**: Retrieves the cumulative inflow of funds over time.
-   - **GET /hyperliquid/daily_inflow**: Retrieves the daily inflow of funds.
-   - **GET /hyperliquid/liquidity_per_symbol**: Retrieves the liquidity data per symbol.
-   - **GET /hyperliquid/largest_users_by_usd_volume**: Retrieves the largest users by USD trading volume.
-   - **GET /hyperliquid/largest_user_depositors**: Retrieves the largest user depositors.
-   - **GET /hyperliquid/largest_liquidated_notional_by_user**: Retrieves the largest liquidated notional by user.
-   - **GET /hyperliquid/largest_user_trade_count**: Retrieves the users with the highest trade counts.
+   - **GET /hyperliquid/total_users**: Retrieves the total number of users. Part of `Total Users` metric.
+   - **GET /hyperliquid/total_usd_volume**: Retrieves the total USD trading volume. Part of `Total USD Volume` metric.
+   - **GET /hyperliquid/total_deposits**: Retrieves the total amount of deposits. Part of `Total Deposits` metric.
+   - **GET /hyperliquid/total_withdrawals**: Retrieves the total amount of withdrawals. Part of `Total Withdrawals` metric.
+   - **GET /hyperliquid/total_notional_liquidated**: Retrieves the total notional value liquidated. Part of `Total Notional Liquidated` metric.
+   - **GET /hyperliquid/cumulative_usd_volume**: Retrieves the cumulative USD trading volume over time. The line chart of `Cumulative total non-MM USD Volume` chart.
+   - **GET /hyperliquid/daily_usd_volume**: Retrieves the daily USD trading volume over time. The bar chart of `Cumulative total non-MM USD Volume` chart.
+   - **GET /hyperliquid/daily_usd_volume_by_coin**: Retrieves the daily USD trading volume by coin over time. Overlay of bar chart in `Cumulative total non-MM USD Volume` chart.
+   - **GET /hyperliquid/daily_usd_volume_by_crossed**: Retrieves the daily USD trading volume by crossed over time. Overlay of bar chart in `Cumulative total non-MM USD Volume` chart.
+   - **GET /hyperliquid/daily_usd_volume_by_user**: Retrieves the daily USD trading volume by top 10 user and the rest are summed and marked as other. Overlay of bar chart in `Cumulative total non-MM USD Volume` chart.
+   - **GET /hyperliquid/cumulative_trades**: Retrieves the cumulative number of trades over time. The line chart of `Cumulative total trades` chart.
+   - **GET /hyperliquid/daily_trades**: Retrieves the daily number of trades. The bar chart of `Cumulative total trades` chart.
+   - **GET /hyperliquid/daily_trades_by_coin**: Retrieves the daily number of trades by coin. Overlay of bar chart in `Cumulative total trades` chart.
+   - **GET /hyperliquid/daily_trades_by_crossed**: Retrieves the daily number of trades by crossed. Overlay of bar chart in `Cumulative total trades` chart.
+   - **GET /hyperliquid/daily_trades_by_user**: Retrieves the daily number of trades by top 10 user and the rest are summed and marked as other. Overlay of bar chart in `Cumulative total trades` chart.
+   - **GET /hyperliquid/user_pnl**: Retrieves the profit and loss (PnL) for all users daily. The line chart of `User PnL` chart.
+   - **GET /hyperliquid/cumulative_user_pnl**: Retrieves the cumulative PnL for all users over time. The bar chart of `User PnL` chart.
+   - **GET /hyperliquid/hlp_liquidator_pnl**: Retrieves the PnL for liquidators daily. The line chart of `HLP Liquidator PnL` chart.
+   - **GET /hyperliquid/cumulative_hlp_liquidator_pnl**: Retrieves the cumulative PnL for liquidators over time. The bar chart of `HLP Liquidator PnL` chart.
+   - **GET /hyperliquid/cumulative_liquidated_notional**: Retrieves the cumulative liquidated notional value over time. The line chart of `Cumulative total notional liquidated` chart.
+   - **GET /hyperliquid/daily_liquidated_notional**: Retrieves the daily liquidated notional value. The bar chart of `Cumulative total notional liquidated` chart.
+   - **GET /hyperliquid/daily_notional_liquidated_by_leverage_type**: Retrieves the daily liquidated notional value by leverage type. Overlay of bar chart in `Cumulative total notional liquidated` chart.
+   - **GET /hyperliquid/cumulative_unique_users**: Retrieves the cumulative number of unique users over time. The line chart of `Daily unique users` chart.
+   - **GET /hyperliquid/daily_unique_users**: Retrieves the daily number of unique users. The bar chart of `Daily unique users` chart.
+   - **GET /hyperliquid/daily_unique_users_by_coin**: Retrieves the daily number of unique users by coin. Overlay of bar chart in `Daily unique users` chart.
+   - **GET /hyperliquid/cumulative_inflow**: Retrieves the cumulative inflow of funds over time. The line chart of `Cumulative inflow` chart.
+   - **GET /hyperliquid/daily_inflow**: Retrieves the daily inflow of funds. The bar chart of `Cumulative inflow` chart.
+   - **GET /hyperliquid/open_interest**: Retrieves the open interest data. The line chart of `Open interest` chart.
+   - **GET /hyperliquid/funding_rate**: Retrieves the funding rate data. The line chart of `Funding rate` chart.
+   - **GET /hyperliquid/liquidity_per_symbol**: Retrieves the liquidity data per symbol. The line chart of `Liquidity per symbol` chart.
+   - **GET /hyperliquid/largest_users_by_usd_volume**: Retrieves the largest users by USD trading volume. The table of `Largest users by USD volume` table.
+   - **GET /hyperliquid/largest_user_depositors**: Retrieves the largest user depositors. The table of `Largest user depositors` table.
+   - **GET /hyperliquid/largest_liquidated_notional_by_user**: Retrieves the largest liquidated notional by user. The table of `Largest liquidated notional by user` table.
+   - **GET /hyperliquid/largest_user_trade_count**: Retrieves the users with the highest trade counts. The table of `Largest user trade count` table.
 
    ### Note: The above endpoints support optional query parameters to filter the data based on specific criteria such as `start_date`, `end_date`, and `coins`.
 
 4. Send HTTP requests to the desired endpoint(s) and retrieve the data or metrics in the response or navigate to `/hyperliquid/dashboard/` for the UI.
+
+## Additional Information
+
+### Directory Structure
+
+The project follows the following directory structure:
+
+```
+.
+├── app.py
+├── config.example.json
+├── config.json
+├── docker-compose.yml
+├── Dockerfile
+├── pgdata
+├── README.md
+├── requirements.txt
+├── scripts
+│   └── main.py
+└── tables.sql
+```
+
+- `app.py`: The main file that defines the FastAPI application and the API endpoints.
+- `config.example.json`: An example configuration file. Copy and rename it to `config.json` and modify the values accordingly.
+- `config.json`: The project configuration file. Contains database connection details and other configuration options.
+- `docker-compose.yml`: The Docker Compose file for running the project containers.
+- `Dockerfile`: The Dockerfile used to build the project image.
+- `pgdata`: A directory used to persist the PostgreSQL database data.
+- `README.md`: This README file providing detailed information about the project.
+- `requirements.txt`: The file listing the Python dependencies required for the project.
+- `scripts/main.py`: The script responsible for data extraction, loading, and caching.
+- `tables.sql`: The SQL script containing the table definitions and indexes.
+
+### Cron Job
+
+To automate the data processing, you can set up a cron job to run the `main.py` script periodically. The script is located in the `scripts` directory. Use the following cron job configuration to execute the script every day at 3:00 AM:
+
+```
+0 3 * * * python /app/scripts/main.py
+```
+
+Make sure to adjust the path to the script based on your project's directory structure.
+
+### Configuration
+
+The project's configuration is stored in the `config.json` file. It includes the following settings:
+
+- `db_uri`: The URI for connecting to the PostgreSQL database. Modify this based on your database configuration.
+- `bucket_name`: The name of the AWS S3 bucket where the data files are stored.
+- `aws_access_key_id`: The AWS access key ID for accessing the S3 bucket.
+- `aws_secret_access_key`: The AWS secret access key for accessing the S3 bucket.
+- `slack_token` (optional): The token for the Slack workspace where alerts will be sent, set to `""` to ignore.
+- `tables`: List of tables to create data for from S3.
+
+Update these settings according to your environment and requirements.
+
+### Database Tables
+
+The SQL script `tables.sql` contains the table definitions and indexes used by the project. The following tables are created:
+
+- `liquidations`: Stores information about liquidations, including time, user, liquidated notional position, liquidated account value, and leverage type.
+- `liquidations_cache`: Caches aggregated data for liquidations.
+- `non_mm_ledger_updates`: Stores information about non-market-maker ledger updates, including time, user, and delta USD.
+- `non_mm_trades`: Stores information about non-market-maker trades, including time, user, coin, side, price, size, and whether it was a crossed trade.
+- `non_mm_trades_cache`: Caches aggregated data for non-market-maker trades.
+- `non_mm_ledger_updates_cache`: Caches aggregated data for non-market-maker ledger updates.
+- `account_values`: Stores account values, including time, user, is_vault flag, account value, cumulative volume, and cumulative ledger value.
+- `account_values_cache`: Caches aggregated data for account values.
+- `funding`: Stores funding information, including time, asset, funding rate, and premium.
+- `funding_cache`: Caches aggregated data for funding.
+- `asset_ctxs`: Stores asset contexts, including open interest, etc.
+- `asset_ctxs_cache`: Caches aggregated data for asset contexts.
+- `market_data`: Stores market data, including time, coin, median liquidity, and spread.
+- `market_data_cache`: Caches aggregated data for market data.
+
+These tables are used by the scripts and API endpoints to retrieve and process data.

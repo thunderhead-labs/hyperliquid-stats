@@ -319,6 +319,19 @@ async def get_daily_usd_volume_by_user(
         return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/cumulative_trades")
+async def get_cumulative_trades(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = Query(None),
+):
+    return {
+        "chart_data": get_cumulative_chart_data(
+            non_mm_trades_cache, "group_count", start_date, end_date, coins
+        )
+    }
+
+
 @app.get("/hyperliquid/daily_trades")
 async def get_daily_trades(
     start_date: Optional[str] = None,

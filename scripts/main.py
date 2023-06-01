@@ -264,7 +264,7 @@ def process_file(db_uri: str, bucket_name: str, file_name: str, table: str, date
 
 def delete_old_data_from_market_data_table(db_uri: str):
     engine = create_engine(db_uri)
-    cutoff_date = datetime.date.today() - datetime.timedelta(days=14)
+    cutoff_date = datetime.date.today() - datetime.timedelta(days=3)
     with engine.connect() as connection:
         query = text(f"DELETE FROM market_data WHERE time < '{cutoff_date}'")
         connection.execute(query)
@@ -291,15 +291,14 @@ def main():
         for date in dates[1:]:
             try:
                 if table_name == "market_data":
-
-                        for i in range(24):
-                            for asset in asset_coin_map.values():
-                                try:
-                                    file_name = f"{table_name}/{date.strftime('%Y%m%d')}/{i}/l2Book/{asset}.lz4"
-                                    process_file(db_uri, bucket_name, file_name, table, date)
-                                    print(f"Data processing completed successfully for {date, i, asset, table}!")
-                                except Exception as e:
-                                    print(f"Error processing {date, i, asset, table}!")
+                    for i in range(24):
+                        for asset in asset_coin_map.values():
+                            try:
+                                file_name = f"{table_name}/{date.strftime('%Y%m%d')}/{i}/l2Book/{asset}.lz4"
+                                process_file(db_uri, bucket_name, file_name, table, date)
+                                print(f"Data processing completed successfully for {date, i, asset, table}!")
+                            except Exception as e:
+                                print(f"Error processing {date, i, asset, table}!")
                 else:
                     file_name = f"{table_name}/{date.strftime('%Y%m%d')}.csv.lz4"
                     process_file(db_uri, bucket_name, file_name, table, date)
