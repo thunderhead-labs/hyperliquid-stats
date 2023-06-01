@@ -6,8 +6,6 @@ services:
       dockerfile: Dockerfile.server
     ports:
       - 8000:8000
-    depends_on:
-      - database
   database:
     image: postgres:latest
     restart: always
@@ -21,8 +19,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.cron
-    depends_on:
-      - database
     volumes:
       - ./scripts:/app/scripts
       - ./config.json:/app/config.json
