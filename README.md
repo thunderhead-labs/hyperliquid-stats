@@ -1,5 +1,3 @@
-Apologies for the oversight. Here's an updated version of the README.md file with the correct number of endpoints and including the missing tables in the "Database Tables" section:
-
 # HyperLiquid Stats
 
 HyperLiquid Stats is a data analysis and visualization tool for HyperLiquid. It provides various insights and metrics related to trading activities, user behavior, and financial data. This README.md file provides detailed information on how to install, set up, and use the HyperLiquid Stats project.
@@ -92,9 +90,9 @@ HyperLiquid Stats provides an API that exposes various endpoints for retrieving 
    - **GET /hyperliquid/hlp_liquidator_pnl**: Retrieves the PnL for liquidators daily. The bar chart of `HLP Liquidator PnL` chart.
    - **GET /hyperliquid/cumulative_hlp_liquidator_pnl**: Retrieves the cumulative PnL for liquidators over time. The line chart of `HLP Liquidator PnL` chart.
    - **GET /hyperliquid/cumulative_liquidated_notional**: Retrieves the cumulative liquidated notional value over time. The line chart of `Cumulative total notional liquidated` chart.
-   - **GET /hyperliquid/daily_liquidated_notional**: Retrieves the daily liquidated notional value. The bar chart of `Cumulative total notional liquidated` chart.
+   - **GET /hyperliquid/daily_notional_liquidated_total**: Retrieves the daily liquidated notional value. The bar chart of `Cumulative total notional liquidated` chart.
    - **GET /hyperliquid/daily_notional_liquidated_by_leverage_type**: Retrieves the daily liquidated notional value by leverage type. Overlay of bar chart in `Cumulative total notional liquidated` chart.
-   - **GET /hyperliquid/cumulative_unique_users**: Retrieves the cumulative number of unique users over time. The line chart of `Daily unique users` chart.
+   - **GET /hyperliquid/cumulative_new_users**: Retrieves the cumulative number of new users and new users daily. The line chart of `Daily unique users` chart.
    - **GET /hyperliquid/daily_unique_users**: Retrieves the daily number of unique users. The bar chart of `Daily unique users` chart.
    - **GET /hyperliquid/daily_unique_users_by_coin**: Retrieves the daily number of unique users by coin. Overlay of bar chart in `Daily unique users` chart.
    - **GET /hyperliquid/cumulative_inflow**: Retrieves the cumulative inflow of funds over time. The line chart of `Cumulative inflow` chart.

@@ -825,8 +825,8 @@ async def get_funding_rate(
         return {"chart_data": chart_data}
 
 
-@app.get("/hyperliquid/cumulative_unique_users")
-async def get_cumulative_unique_users(
+@app.get("/hyperliquid/cumulative_new_users")
+async def get_cumulative_new_users(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     coins: Optional[List[str]] = Query(None),
@@ -834,7 +834,11 @@ async def get_cumulative_unique_users(
     async with database.transaction():
         # Apply filters to non_mm_trades_cache
         filtered_trades = apply_filters(
-            non_mm_trades_cache.select(), non_mm_trades_cache, start_date, end_date, coins
+            non_mm_trades_cache.select(),
+            non_mm_trades_cache,
+            start_date,
+            end_date,
+            coins,
         )
 
         # Create subquery to get the first trade date for each user
@@ -842,28 +846,22 @@ async def get_cumulative_unique_users(
             select(
                 filtered_trades.c.user,
                 func.min(filtered_trades.c.time).label("first_trade_date"),
-            )
-            .group_by(filtered_trades.c.user)
+            ).group_by(filtered_trades.c.user)
         ).alias("user_first_trade_dates")
 
         # Now select the date and count distinct users by date
-        query = (
-            select(
-                subquery.c.first_trade_date.label("date"),
-                func.count(subquery.c.user).label("daily_unique_users"),
-            )
-            .group_by(subquery.c.first_trade_date)
-        )
+        query = select(
+            subquery.c.first_trade_date.label("date"),
+            func.count(subquery.c.user).label("daily_new_users"),
+        ).group_by(subquery.c.first_trade_date)
 
-        # Then select date, daily_unique_users, and the cumulative count of unique users
-        final_query = (
-            select(
-                query.c.date,
-                query.c.daily_unique_users,
-                func.sum(query.c.daily_unique_users).over(order_by=query.c.date).label(
-                    "cumulative_unique_users"
-                ),
-            )
+        # Then select date, daily_new_users, and the cumulative count of unique users
+        final_query = select(
+            query.c.date,
+            query.c.daily_new_users,
+            func.sum(query.c.daily_new_users)
+            .over(order_by=query.c.date)
+            .label("cumulative_new_users"),
         )
 
         # Execute the final query
@@ -873,8 +871,8 @@ async def get_cumulative_unique_users(
         chart_data = [
             {
                 "date": row["date"].strftime("%Y-%m-%d"),
-                "daily_unique_users": row["daily_unique_users"],
-                "cumulative_unique_users": row["cumulative_unique_users"],
+                "daily_new_users": row["daily_new_users"],
+                "cumulative_new_users": row["cumulative_new_users"],
             }
             for row in results
         ]
