@@ -25,7 +25,7 @@ table_to_file_name_map = {
 }
 
 # Load configuration from JSON file
-with open("../config.json", "r") as config_file:
+with open("/app/config.json", "r") as config_file:
     config = json.load(config_file)
 
 
@@ -65,28 +65,35 @@ def load_data_to_db(db_uri: str, table_name: str, file_name: str):
     engine = create_engine(db_uri)
     if "market_data" in file_name:
         data = []
-        with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
+        with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
             for line in f:
                 json_line = json.loads(line)
 
                 # Calculate liquidity
                 liquidity = 0
-                for level in json_line['raw']['data']['levels']:
+                for level in json_line["raw"]["data"]["levels"]:
                     for bid_or_ask in level:
-                        liquidity += float(bid_or_ask['px']) * float(bid_or_ask['sz'])
+                        liquidity += float(bid_or_ask["px"]) * float(bid_or_ask["sz"])
 
-                json_line['liquidity'] = liquidity
+                json_line["liquidity"] = liquidity
 
                 # Serialize the 'levels' list as a JSON string
-                json_line['levels'] = json.dumps(json_line['raw']['data']['levels'])
+                json_line["levels"] = json.dumps(json_line["raw"]["data"]["levels"])
                 data.append(json_line)
         df = pd.json_normalize(data)
         df.drop("raw.data.levels", inplace=True, axis=1)
-        df.rename(columns={"raw.channel": "channel", "raw.data.coin": "coin", "raw.data.time": "raw_time"}, inplace=True)
+        df.rename(
+            columns={
+                "raw.channel": "channel",
+                "raw.data.coin": "coin",
+                "raw.data.time": "raw_time",
+            },
+            inplace=True,
+        )
         # Loading market_data_snapshot_details
-        df.to_sql('market_data', con=engine, if_exists="append", index=False)
+        df.to_sql("market_data", con=engine, if_exists="append", index=False)
     else:
-        with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
+        with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
             df = pd.read_csv(f)
     df.to_sql(table_name, con=engine, if_exists="append", index=False)
 
@@ -99,13 +106,14 @@ def get_latest_date(db_uri: str, table_name: str):
 
 
 def send_alert(message: str):
-    return
     slack_token = config["slack_token"]
     if slack_token != "":
         client = WebClient(token=slack_token)
 
         try:
-            response = client.chat_postMessage(channel=slack_alerts_channel, text=message)
+            response = client.chat_postMessage(
+                channel=slack_alerts_channel, text=message
+            )
         except SlackApiError as e:
             print(f"Error sending alert: {e.response['error']}")
 
@@ -123,7 +131,8 @@ def update_market_data_cache(db_uri: str, date: datetime.date):
     engine = create_engine(db_uri)
     with engine.connect() as connection:
         # Aggregate data from market_data table
-        query = text("""
+        query = text(
+            """
         INSERT INTO market_data_cache (time, coin, median_liquidity)
         SELECT 
             DATE(time) AS time,
@@ -135,7 +144,8 @@ def update_market_data_cache(db_uri: str, date: datetime.date):
             DATE(time) = :date
         GROUP BY 
             DATE(time), coin
-        """)
+        """
+        )
         connection.execute(query, date=date)
 
 
@@ -145,7 +155,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
         update_market_data_cache(db_uri, date)
     else:
         engine = create_engine(db_uri)
-        with lz4.frame.open(f"../tmp/{file_name}", 'r') as f:
+        with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
             df = pd.read_csv(f)
 
         if "trades" in file_name:
@@ -155,9 +165,18 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 .reset_index()
             )
 
-            df_agg.columns = ["user", "coin", "side", "crossed", "special_trade_type", "mean_px", "sum_sz"]
-            df_agg["group_count"] = df.groupby(["user", "coin", "side", "crossed", "special_trade_type"])[
-                "user"].transform("count")
+            df_agg.columns = [
+                "user",
+                "coin",
+                "side",
+                "crossed",
+                "special_trade_type",
+                "mean_px",
+                "sum_sz",
+            ]
+            df_agg["group_count"] = df.groupby(
+                ["user", "coin", "side", "crossed", "special_trade_type"]
+            )["user"].transform("count")
             df_agg["time"] = date
             df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
             df_agg.to_sql(
@@ -165,15 +184,14 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             )
 
         elif "ledger_updates" in file_name:
-            df_agg = (
-                df.groupby(["user"])
-                .agg({"delta_usd": "sum"})
-                .reset_index()
-            )
+            df_agg = df.groupby(["user"]).agg({"delta_usd": "sum"}).reset_index()
             df_agg.columns = ["user", "sum_delta_usd"]
             df_agg["time"] = date
             df_agg.to_sql(
-                "non_mm_ledger_updates_cache", con=engine, if_exists="append", index=False
+                "non_mm_ledger_updates_cache",
+                con=engine,
+                if_exists="append",
+                index=False,
             )
 
         elif "liquidations" in file_name:
@@ -189,7 +207,9 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "sum_liquidated_account_value",
             ]
             df_agg["time"] = date
-            df_agg.to_sql("liquidations_cache", con=engine, if_exists="append", index=False)
+            df_agg.to_sql(
+                "liquidations_cache", con=engine, if_exists="append", index=False
+            )
 
         elif "funding" in file_name:
             df_agg = (
@@ -215,23 +235,27 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "sum_cum_ledger",
             ]
             df_agg["time"] = date
-            df_agg.to_sql("account_values_cache", con=engine, if_exists="append", index=False)
+            df_agg.to_sql(
+                "account_values_cache", con=engine, if_exists="append", index=False
+            )
 
         elif "asset_ctxs" in file_name:
             df_agg = (
                 df.groupby(["coin"])
-                .agg({
-                    "funding": "sum",
-                    "open_interest": "sum",
-                    "prev_day_px": "mean",
-                    "day_ntl_vlm": "sum",
-                    "premium": "mean",
-                    "oracle_px": "mean",
-                    "mark_px": "mean",
-                    "mid_px": "mean",
-                    "impact_bid_px": "mean",
-                    "impact_ask_px": "mean"
-                })
+                .agg(
+                    {
+                        "funding": "sum",
+                        "open_interest": "sum",
+                        "prev_day_px": "mean",
+                        "day_ntl_vlm": "sum",
+                        "premium": "mean",
+                        "oracle_px": "mean",
+                        "mark_px": "mean",
+                        "mid_px": "mean",
+                        "impact_bid_px": "mean",
+                        "impact_ask_px": "mean",
+                    }
+                )
                 .reset_index()
             )
             df_agg.columns = [
@@ -245,13 +269,17 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "avg_mark_px",
                 "avg_mid_px",
                 "avg_impact_bid_px",
-                "avg_impact_ask_px"
+                "avg_impact_ask_px",
             ]
             df_agg["time"] = date
-            df_agg.to_sql("asset_ctxs_cache", con=engine, if_exists="append", index=False)
+            df_agg.to_sql(
+                "asset_ctxs_cache", con=engine, if_exists="append", index=False
+            )
 
 
-def process_file(db_uri: str, bucket_name: str, file_name: str, table: str, date: datetime.date):
+def process_file(
+    db_uri: str, bucket_name: str, file_name: str, table: str, date: datetime.date
+):
     download_data_from_s3(bucket_name, file_name)
     load_data_to_db(db_uri, table, file_name)
     update_cache_tables(db_uri, file_name, date)
@@ -262,9 +290,9 @@ def process_file(db_uri: str, bucket_name: str, file_name: str, table: str, date
         raise Exception(f"Error: {tmp_file_path} not found")
 
 
-def delete_old_data_from_market_data_table(db_uri: str):
+def delete_old_data_from_market_data_table(db_uri: str, cache_max_date: datetime.date):
     engine = create_engine(db_uri)
-    cutoff_date = datetime.date.today() - datetime.timedelta(days=3)
+    cutoff_date = cache_max_date - datetime.timedelta(days=3)
     with engine.connect() as connection:
         query = text(f"DELETE FROM market_data WHERE time < '{cutoff_date}'")
         connection.execute(query)
@@ -295,8 +323,12 @@ def main():
                         for asset in asset_coin_map.values():
                             try:
                                 file_name = f"{table_name}/{date.strftime('%Y%m%d')}/{i}/l2Book/{asset}.lz4"
-                                process_file(db_uri, bucket_name, file_name, table, date)
-                                print(f"Data processing completed successfully for {date, i, asset, table}!")
+                                process_file(
+                                    db_uri, bucket_name, file_name, table, date
+                                )
+                                print(
+                                    f"Data processing completed successfully for {date, i, asset, table}!"
+                                )
                             except Exception as e:
                                 print(f"Error processing {date, i, asset, table}!")
                 else:
@@ -309,17 +341,16 @@ def main():
                 send_alert(
                     f"Data processing for {table} as {date} failed with error: {e}"
                 )
-                print(
-                    f"Data processing for {table} as {date} failed with error: {e}"
-                )
+                print(f"Data processing for {table} as {date} failed with error: {e}")
 
         # Check cache table max date and compare with the main table
         cache_max_date = get_latest_date(db_uri, f"{table}_cache")
         if cache_max_date and cache_max_date.date() != latest_date:
             send_alert(
-                f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({latest_date})")
+                f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({latest_date})"
+            )
         else:
-            delete_old_data_from_market_data_table(db_uri)
+            delete_old_data_from_market_data_table(db_uri, cache_max_date)
 
 
 if __name__ == "__main__":

@@ -99,7 +99,7 @@ HyperLiquid Stats provides an API that exposes various endpoints for retrieving 
    - **GET /hyperliquid/daily_inflow**: Retrieves the daily inflow of funds. The bar chart of `Cumulative inflow` chart.
    - **GET /hyperliquid/open_interest**: Retrieves the open interest data. The line chart of `Open interest` chart.
    - **GET /hyperliquid/funding_rate**: Retrieves the funding rate data. The line chart of `Funding rate` chart.
-   - **GET /hyperliquid/liquidity_per_symbol**: Retrieves the liquidity data per symbol. The line chart of `Liquidity per symbol` chart.
+   - **GET /hyperliquid/liquidity_by_coin**: Retrieves the liquidity data by coin. The line chart of `Liquidity by coin` chart.
    - **GET /hyperliquid/largest_users_by_usd_volume**: Retrieves the largest users by USD trading volume. The table of `Largest users by USD volume` table.
    - **GET /hyperliquid/largest_user_depositors**: Retrieves the largest user depositors. The table of `Largest user depositors` table.
    - **GET /hyperliquid/largest_liquidated_notional_by_user**: Retrieves the largest liquidated notional by user. The table of `Largest liquidated notional by user` table.

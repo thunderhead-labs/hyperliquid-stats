@@ -89,7 +89,9 @@ async def get_total_users(
     end_date: Optional[str] = None,
     coins: Optional[List[str]] = Query(None),
 ):
-    query = select(func.count(distinct(non_mm_trades_cache.c.user)).label("total_users"))
+    query = select(
+        func.count(distinct(non_mm_trades_cache.c.user)).label("total_users")
+    )
     query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
     result = await database.fetch_one(query)
     return {"total_users": result["total_users"]}
@@ -102,9 +104,7 @@ async def get_total_volume(
     coins: Optional[List[str]] = Query(None),
 ):
     query = select(
-        func.sum(
-            non_mm_trades_cache.c.usd_volume
-        ).label("total_usd_volume")
+        func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume")
     ).select_from(non_mm_trades_cache)
     query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
     result = await database.fetch_one(query)
@@ -116,11 +116,11 @@ async def get_total_deposits(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
-    query = select(
-        func.sum(non_mm_ledger_updates.c.delta_usd).label(
-            "total_deposits"
-        )
-    ).where(non_mm_ledger_updates.c.delta_usd > 0).select_from(non_mm_ledger_updates)
+    query = (
+        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_deposits"))
+        .where(non_mm_ledger_updates.c.delta_usd > 0)
+        .select_from(non_mm_ledger_updates)
+    )
     query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
     result = await database.fetch_one(query)
     return {"total_deposits": result["total_deposits"]}
@@ -131,11 +131,11 @@ async def get_total_withdrawals(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
-    query = select(
-        func.sum(non_mm_ledger_updates.c.delta_usd).label(
-            "total_withdrawals"
-        )
-    ).where(non_mm_ledger_updates.c.delta_usd < 0).select_from(non_mm_ledger_updates)
+    query = (
+        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_withdrawals"))
+        .where(non_mm_ledger_updates.c.delta_usd < 0)
+        .select_from(non_mm_ledger_updates)
+    )
     query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
     result = await database.fetch_one(query)
     return {"total_withdrawals": result["total_withdrawals"]}
@@ -168,9 +168,9 @@ async def get_cumulative_chart_data(table, column, start_date, end_date, coins):
         # Now we create a cumulative sum based on the subquery
         query = select(
             subquery.c.time,
-            func.sum(subquery.c[column]).over(
-                order_by=subquery.c.time
-            ).label("cumulative")
+            func.sum(subquery.c[column])
+            .over(order_by=subquery.c.time)
+            .label("cumulative"),
         )
 
         # Execute the query and fetch all rows
@@ -218,7 +218,8 @@ async def get_daily_usd_volume(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "daily_usd_volume": row["daily_usd_volume"]} for row in result
+            {"time": row["time"], "daily_usd_volume": row["daily_usd_volume"]}
+            for row in result
         ]
         return {"chart_data": chart_data}
 
@@ -241,7 +242,11 @@ async def get_daily_usd_volume_by_coin(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "coin": row["coin"], "daily_usd_volume": row["daily_usd_volume"]}
+            {
+                "time": row["time"],
+                "coin": row["coin"],
+                "daily_usd_volume": row["daily_usd_volume"],
+            }
             for row in result
         ]
         return {"chart_data": chart_data}
@@ -265,85 +270,116 @@ async def get_daily_usd_volume_by_crossed(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "crossed": row["crossed"], "daily_usd_volume": row["daily_usd_volume"]}
+            {
+                "time": row["time"],
+                "crossed": row["crossed"],
+                "daily_usd_volume": row["daily_usd_volume"],
+            }
             for row in result
         ]
         return {"chart_data": chart_data}
 
 
-# TODO fix other
 @app.get("/hyperliquid/daily_usd_volume_by_user")
 async def get_daily_usd_volume_by_user(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
     async with database.transaction():
-        subquery = (
-            select(
-                non_mm_trades_cache.c.time,
-                non_mm_trades_cache.c.user,
-                func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume")
-            )
-            .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
-            .alias("daily_volume")
+        base_query = select(
+            non_mm_trades_cache.c.time.label("date"),
+            non_mm_trades_cache.c.user,
+            func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume"),
+        ).group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
+
+        base_query = apply_filters(
+            base_query, non_mm_trades_cache, start_date, end_date
         )
 
-        inner_query = (
+        subquery = base_query.alias("daily_volume")
+
+        # Define a subquery to get total volume for all users
+        total_usd_volume_subquery = (
             select(
-                subquery.c.time.label("date"),
+                subquery.c.date,
+                func.sum(subquery.c.total_usd_volume).label("total_usd_volume"),
+            ).group_by(subquery.c.date)
+        ).alias("total_usd_volume")
+
+        rank_subquery = (
+            select(
+                subquery.c.date,
                 subquery.c.user,
                 subquery.c.total_usd_volume,
-                func.rank().over(
-                    partition_by=subquery.c.time,
-                    order_by=subquery.c.total_usd_volume.desc()
-                ).label("user_rank")
+                func.rank()
+                .over(
+                    partition_by=subquery.c.date,
+                    order_by=subquery.c.total_usd_volume.desc(),
+                )
+                .label("user_rank"),
             )
-            .select_from(subquery)
-            .where(subquery.c.time.between(start_date, end_date))  # Apply date filtering in the subquery
-        )
+        ).alias("rank_subquery")
 
-        query = (
+        top_10_users_subquery = (
             select(
-                inner_query.c.date,
-                inner_query.c.user,
-                inner_query.c.total_usd_volume
-            )
-            .select_from(inner_query)
-            .where(inner_query.c.user_rank <= 10)  # Apply user rank filtering
-            .order_by(inner_query.c.date, inner_query.c.total_usd_volume.desc())
-        )
+                rank_subquery.c.date,
+                rank_subquery.c.user,
+                rank_subquery.c.total_usd_volume,
+            ).where(rank_subquery.c.user_rank <= 10)
+        ).alias("top_10_users")
 
-        # Calculate the sum of USD volume for the top 10 users per day
-        top_10_usd_volume_subquery = (
+        top_users_per_day_subquery = (
             select(
-                inner_query.c.date.label("date"),
-                func.sum(inner_query.c.total_usd_volume).label("top_10_usd_volume")
-            )
-            .select_from(inner_query)
-            .where(inner_query.c.user_rank <= 10)
-            .group_by(inner_query.c.date)
-            .alias("top_10_usd_volume")
-        )
+                top_10_users_subquery.c.date,
+                func.sum(top_10_users_subquery.c.total_usd_volume).label(
+                    "top_users_total_usd_volume"
+                ),
+            ).group_by(top_10_users_subquery.c.date)
+        ).alias("top_users_per_day")
 
-        # Add the "Other" row per day
         other_subquery = (
             select(
-                inner_query.c.date,
+                total_usd_volume_subquery.c.date,
                 literal("Other").label("user"),
-                (top_10_usd_volume_subquery.c.top_10_usd_volume - func.coalesce(func.sum(inner_query.c.total_usd_volume), 0)).label("total_usd_volume")
+                (
+                    total_usd_volume_subquery.c.total_usd_volume
+                    - coalesce(
+                        top_users_per_day_subquery.c.top_users_total_usd_volume, 0
+                    )
+                ).label("total_usd_volume"),
+            ).select_from(
+                total_usd_volume_subquery.join(
+                    top_users_per_day_subquery,
+                    total_usd_volume_subquery.c.date
+                    == top_users_per_day_subquery.c.date,
+                    isouter=True,
+                )
             )
-            .select_from(inner_query)
-            .join(top_10_usd_volume_subquery, inner_query.c.date == top_10_usd_volume_subquery.c.date)
-            .where(inner_query.c.user_rank > 10)  # Filter out the top 10 users
-            .group_by(inner_query.c.date, top_10_usd_volume_subquery.c.top_10_usd_volume)
-        )
+        ).alias("other")
 
-        query = query.union(other_subquery).order_by(query.c.date)
+        query = union_all(
+            select(
+                top_10_users_subquery.c.date,
+                top_10_users_subquery.c.user,
+                top_10_users_subquery.c.total_usd_volume,
+            ),
+            select(
+                other_subquery.c.date,
+                other_subquery.c.user,
+                other_subquery.c.total_usd_volume,
+            ),
+        ).order_by("date")
 
         result = await database.fetch_all(query)
         chart_data = [
-            {"date": row["date"], "user": row["user"], "daily_usd_volume": row["total_usd_volume"]} for row in result
+            {
+                "date": row["date"],
+                "user": row["user"],
+                "daily_usd_volume": row["total_usd_volume"],
+            }
+            for row in result
         ]
+
         return {"chart_data": chart_data}
 
 
@@ -400,7 +436,11 @@ async def get_daily_trades_by_coin(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "coin": row["coin"], "daily_trades": row["daily_trades"]}
+            {
+                "time": row["time"],
+                "coin": row["coin"],
+                "daily_trades": row["daily_trades"],
+            }
             for row in result
         ]
         return {"chart_data": chart_data}
@@ -424,86 +464,116 @@ async def get_daily_trades_by_crossed(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "crossed": row["crossed"], "daily_trades": row["daily_trades"]}
+            {
+                "time": row["time"],
+                "crossed": row["crossed"],
+                "daily_trades": row["daily_trades"],
+            }
             for row in result
         ]
         return {"chart_data": chart_data}
 
 
-# TODO fix other
 @app.get("/hyperliquid/daily_trades_by_user")
 async def get_daily_trades_by_user(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ):
     async with database.transaction():
-        subquery = (
-            select(
-                non_mm_trades_cache.c.time,
-                non_mm_trades_cache.c.user,
-                func.sum(non_mm_trades_cache.c.group_count).label("total_group_count")
-            )
-            .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
-            .alias("daily_group_count")
+        base_query = select(
+            non_mm_trades_cache.c.time.label("date"),
+            non_mm_trades_cache.c.user,
+            func.sum(non_mm_trades_cache.c.group_count).label("total_group_count"),
+        ).group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.user)
+
+        base_query = apply_filters(
+            base_query, non_mm_trades_cache, start_date, end_date
         )
 
-        inner_query = (
+        subquery = base_query.alias("daily_volume")
+
+        # Define a subquery to get total volume for all users
+        total_group_count_subquery = (
             select(
-                subquery.c.time.label("date"),
+                subquery.c.date,
+                func.sum(subquery.c.total_group_count).label("total_group_count"),
+            ).group_by(subquery.c.date)
+        ).alias("total_group_count")
+
+        rank_subquery = (
+            select(
+                subquery.c.date,
                 subquery.c.user,
                 subquery.c.total_group_count,
-                func.rank().over(
-                    partition_by=subquery.c.time,
-                    order_by=subquery.c.total_group_count.desc()
-                ).label("user_rank")
+                func.rank()
+                .over(
+                    partition_by=subquery.c.date,
+                    order_by=subquery.c.total_group_count.desc(),
+                )
+                .label("user_rank"),
             )
-            .select_from(subquery)
-            .where(subquery.c.time.between(start_date, end_date))  # Apply date filtering in the subquery
-        )
+        ).alias("rank_subquery")
 
-        query = (
+        top_10_users_subquery = (
             select(
-                inner_query.c.date,
-                inner_query.c.user,
-                inner_query.c.total_group_count
-            )
-            .select_from(inner_query)
-            .where(inner_query.c.user_rank <= 10)  # Apply user rank filtering
-            .order_by(inner_query.c.date, inner_query.c.total_group_count.desc())
-        )
+                rank_subquery.c.date,
+                rank_subquery.c.user,
+                rank_subquery.c.total_group_count,
+            ).where(rank_subquery.c.user_rank <= 10)
+        ).alias("top_10_users")
 
-        # Calculate the sum of group_count for the top 10 users per day
-        top_10_group_count_subquery = (
+        top_users_per_day_subquery = (
             select(
-                inner_query.c.date.label("date"),
-                func.sum(inner_query.c.total_group_count).label("top_10_group_count")
-            )
-            .select_from(inner_query)
-            .where(inner_query.c.user_rank <= 10)
-            .group_by(inner_query.c.date)
-            .alias("top_10_group_count")
-        )
+                top_10_users_subquery.c.date,
+                func.sum(top_10_users_subquery.c.total_group_count).label(
+                    "top_users_total_group_count"
+                ),
+            ).group_by(top_10_users_subquery.c.date)
+        ).alias("top_users_per_day")
 
-        # Add the "Other" row per day
         other_subquery = (
             select(
-                inner_query.c.date,
+                total_group_count_subquery.c.date,
                 literal("Other").label("user"),
-                (top_10_group_count_subquery.c.top_10_group_count - func.coalesce(
-                    func.sum(inner_query.c.total_group_count), 0)).label("total_group_count")
+                (
+                    total_group_count_subquery.c.total_group_count
+                    - coalesce(
+                        top_users_per_day_subquery.c.top_users_total_group_count, 0
+                    )
+                ).label("total_group_count"),
+            ).select_from(
+                total_group_count_subquery.join(
+                    top_users_per_day_subquery,
+                    total_group_count_subquery.c.date
+                    == top_users_per_day_subquery.c.date,
+                    isouter=True,
+                )
             )
-            .select_from(inner_query)
-            .join(top_10_group_count_subquery, inner_query.c.date == top_10_group_count_subquery.c.date)
-            .where(inner_query.c.user_rank > 10)  # Filter out the top 10 users
-            .group_by(inner_query.c.date, top_10_group_count_subquery.c.top_10_group_count)
-        )
+        ).alias("other")
 
-        query = query.union(other_subquery).order_by(query.c.date)
+        query = union_all(
+            select(
+                top_10_users_subquery.c.date,
+                top_10_users_subquery.c.user,
+                top_10_users_subquery.c.total_group_count,
+            ),
+            select(
+                other_subquery.c.date,
+                other_subquery.c.user,
+                other_subquery.c.total_group_count,
+            ),
+        ).order_by("date")
 
         result = await database.fetch_all(query)
         chart_data = [
-            {"date": row["date"], "user": row["user"], "daily_group_count": row["total_group_count"]} for row in result
+            {
+                "date": row["date"],
+                "user": row["user"],
+                "daily_group_count": row["total_group_count"],
+            }
+            for row in result
         ]
+
         return {"chart_data": chart_data}
 
 
@@ -515,31 +585,49 @@ async def get_cumulative_user_pnl(
     async with database.transaction():
         # Exclude vault addresses and filter on 'is_vault=false'
         subquery = (
-            select([
-                account_values_cache.c.time,
-                func.sum(
-                    account_values_cache.c.sum_account_value
-                    - account_values_cache.c.sum_cum_ledger
-                ).label("daily_pnl"),
-            ])
+            select(
+                [
+                    account_values_cache.c.time,
+                    account_values_cache.c.sum_account_value,
+                    account_values_cache.c.sum_cum_ledger,
+                    func.lag(account_values_cache.c.sum_account_value)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_account_value"),
+                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_cum_ledger"),
+                ]
+            )
             .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
             .where(account_values_cache.c.is_vault == False)
-            .group_by(account_values_cache.c.time)
-        ).alias('sub')
-
-        query = (
-            select([
-                subquery.c.time,
-                func.sum(subquery.c.daily_pnl).over(order_by=subquery.c.time).label("cumulative_pnl"),
-            ])
+            .order_by(account_values_cache.c.time)
+            .alias("subquery")
         )
 
-        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+        query = (
+            select(
+                [
+                    subquery.c.time,
+                    func.sum(
+                        subquery.c.sum_account_value
+                        - subquery.c.previous_sum_account_value
+                        - (
+                            subquery.c.sum_cum_ledger
+                            - subquery.c.previous_sum_cum_ledger
+                        )
+                    )
+                    .over(order_by=subquery.c.time)
+                    .label("cumulative_pnl"),
+                ]
+            )
+            .distinct(subquery.c.time)
+            .select_from(subquery)
+        )
+
+        query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [
-            {"time": row[0], "cumulative_pnl": row[1]} for row in results
-        ]
+        chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
         return chart_data
 
 
@@ -550,25 +638,48 @@ async def get_user_pnl(
 ):
     async with database.transaction():
         # Exclude vault addresses and filter on 'is_vault=false'
-        query = (
-            select([
-                account_values_cache.c.time,
-                func.sum(
-                    account_values_cache.c.sum_account_value
-                    - account_values_cache.c.sum_cum_ledger
-                ).label("total_pnl"),
-            ])
+        subquery = (
+            select(
+                [
+                    account_values_cache.c.time,
+                    account_values_cache.c.sum_account_value,
+                    account_values_cache.c.sum_cum_ledger,
+                    func.lag(account_values_cache.c.sum_account_value)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_account_value"),
+                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_cum_ledger"),
+                ]
+            )
             .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
             .where(account_values_cache.c.is_vault == False)
-            .group_by(account_values_cache.c.time)
+            .order_by(account_values_cache.c.time)
+            .alias("subquery")
         )
 
-        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+        query = (
+            select(
+                [
+                    subquery.c.time,
+                    func.sum(
+                        subquery.c.sum_account_value
+                        - subquery.c.previous_sum_account_value
+                        - (
+                            subquery.c.sum_cum_ledger
+                            - subquery.c.previous_sum_cum_ledger
+                        )
+                    ).label("total_pnl"),
+                ]
+            )
+            .select_from(subquery)
+            .group_by(subquery.c.time)
+        )
+
+        query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [
-            {"time": row[0], "total_pnl": row[1]} for row in results
-        ]
+        chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
         return chart_data
 
 
@@ -579,24 +690,47 @@ async def get_hlp_liquidator_pnl(
 ):
     async with database.transaction():
         # Include only vault addresses
-        query = (
-            select([
-                account_values_cache.c.time,
-                func.sum(
-                    account_values_cache.c.sum_account_value
-                    - account_values_cache.c.sum_cum_ledger
-                ).label("total_pnl"),
-            ])
+        subquery = (
+            select(
+                [
+                    account_values_cache.c.time,
+                    account_values_cache.c.sum_account_value,
+                    account_values_cache.c.sum_cum_ledger,
+                    func.lag(account_values_cache.c.sum_account_value)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_account_value"),
+                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_cum_ledger"),
+                ]
+            )
             .where(account_values_cache.c.user.in_(hlp_vault_addresses))
-            .group_by(account_values_cache.c.time)
+            .order_by(account_values_cache.c.time)
+            .alias("subquery")
+        )
+
+        query = (
+            select(
+                [
+                    subquery.c.time,
+                    func.sum(
+                        subquery.c.sum_account_value
+                        - subquery.c.previous_sum_account_value
+                        - (
+                            subquery.c.sum_cum_ledger
+                            - subquery.c.previous_sum_cum_ledger
+                        )
+                    ).label("total_pnl"),
+                ]
+            )
+            .select_from(subquery)
+            .group_by(subquery.c.time)
         )
 
         query = apply_filters(query, account_values_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [
-            {"time": row[0], "total_pnl": row[1]} for row in results
-        ]
+        chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
         return chart_data
 
 
@@ -608,30 +742,48 @@ async def get_cumulative_hlp_liquidator_pnl(
     async with database.transaction():
         # Include only vault addresses
         subquery = (
-            select([
-                account_values_cache.c.time,
-                func.sum(
-                    account_values_cache.c.sum_account_value
-                    - account_values_cache.c.sum_cum_ledger
-                ).label("daily_pnl"),
-            ])
+            select(
+                [
+                    account_values_cache.c.time,
+                    account_values_cache.c.sum_account_value,
+                    account_values_cache.c.sum_cum_ledger,
+                    func.lag(account_values_cache.c.sum_account_value)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_account_value"),
+                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .over(order_by=account_values_cache.c.time)
+                    .label("previous_sum_cum_ledger"),
+                ]
+            )
             .where(account_values_cache.c.user.in_(hlp_vault_addresses))
-            .group_by(account_values_cache.c.time)
-        ).alias('sub')
+            .order_by(account_values_cache.c.time)
+            .alias("subquery")
+        )
 
         query = (
-            select([
-                subquery.c.time,
-                func.sum(subquery.c.daily_pnl).over(order_by=subquery.c.time).label("cumulative_pnl"),
-            ])
+            select(
+                [
+                    subquery.c.time,
+                    func.sum(
+                        subquery.c.sum_account_value
+                        - subquery.c.previous_sum_account_value
+                        - (
+                            subquery.c.sum_cum_ledger
+                            - subquery.c.previous_sum_cum_ledger
+                        )
+                    )
+                    .over(order_by=subquery.c.time)
+                    .label("cumulative_pnl"),
+                ]
+            )
+            .distinct(subquery.c.time)
+            .select_from(subquery)
         )
 
         query = apply_filters(query, account_values_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [
-            {"time": row[0], "cumulative_pnl": row[1]} for row in results
-        ]
+        chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
         return chart_data
 
 
@@ -656,7 +808,9 @@ async def get_daily_notional_liquidated_total(
         query = (
             select(
                 liquidations_cache.c.time,
-                func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label("daily_notional_liquidated"),
+                func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label(
+                    "daily_notional_liquidated"
+                ),
             )
             .group_by(liquidations_cache.c.time)
             .order_by(liquidations_cache.c.time)
@@ -664,7 +818,10 @@ async def get_daily_notional_liquidated_total(
         query = apply_filters(query, liquidations_cache, start_date, end_date)
         results = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "daily_notional_liquidated": row["daily_notional_liquidated"]}
+            {
+                "time": row["time"],
+                "daily_notional_liquidated": row["daily_notional_liquidated"],
+            }
             for row in results
         ]
         return {"chart_data": chart_data}
@@ -680,7 +837,9 @@ async def get_daily_notional_liquidated_by_leverage_type(
             select(
                 liquidations_cache.c.time,
                 liquidations_cache.c.leverage_type,
-                func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label("daily_notional_liquidated"),
+                func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label(
+                    "daily_notional_liquidated"
+                ),
             )
             .group_by(liquidations_cache.c.time, liquidations_cache.c.leverage_type)
             .order_by(liquidations_cache.c.time)
@@ -708,7 +867,9 @@ async def get_daily_unique_users(
         query = (
             select(
                 non_mm_trades_cache.c.time,
-                func.count(distinct(non_mm_trades_cache.c.user)).label("daily_unique_users"),
+                func.count(distinct(non_mm_trades_cache.c.user)).label(
+                    "daily_unique_users"
+                ),
             )
             .group_by(non_mm_trades_cache.c.time)
             .order_by(non_mm_trades_cache.c.time)
@@ -732,16 +893,19 @@ async def get_daily_unique_users_by_coin(
         total_users_query = (
             select(
                 non_mm_trades_cache.c.time,
-                func.count(distinct(non_mm_trades_cache.c.user)).label("total_unique_users"),
+                func.count(distinct(non_mm_trades_cache.c.user)).label(
+                    "total_unique_users"
+                ),
             )
             .group_by(non_mm_trades_cache.c.time)
             .order_by(non_mm_trades_cache.c.time)
         )
-        total_users_query = apply_filters(total_users_query, non_mm_trades_cache, start_date, end_date)
+        total_users_query = apply_filters(
+            total_users_query, non_mm_trades_cache, start_date, end_date
+        )
         total_users_results = await database.fetch_all(total_users_query)
         total_users_data = {
-            row["time"]: row["total_unique_users"]
-            for row in total_users_results
+            row["time"]: row["total_unique_users"] for row in total_users_results
         }
 
         # Get the daily unique users by coin
@@ -749,7 +913,9 @@ async def get_daily_unique_users_by_coin(
             select(
                 non_mm_trades_cache.c.time,
                 non_mm_trades_cache.c.coin,
-                func.count(distinct(non_mm_trades_cache.c.user)).label("daily_unique_users"),
+                func.count(distinct(non_mm_trades_cache.c.user)).label(
+                    "daily_unique_users"
+                ),
             )
             .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.coin)
             .order_by(non_mm_trades_cache.c.time)
@@ -762,15 +928,19 @@ async def get_daily_unique_users_by_coin(
             time = row["time"]
             coin = row["coin"]
             daily_unique_users = row["daily_unique_users"]
-            total_unique_users = total_users_data.get(time, 1)  # Default to 1 to avoid division by zero
+            total_unique_users = total_users_data.get(
+                time, 1
+            )  # Default to 1 to avoid division by zero
 
             percentage_of_total_users = daily_unique_users / total_unique_users
-            chart_data.append({
-                "time": time,
-                "coin": coin,
-                "daily_unique_users": daily_unique_users,
-                "percentage_of_total_users": percentage_of_total_users,
-            })
+            chart_data.append(
+                {
+                    "time": time,
+                    "coin": coin,
+                    "daily_unique_users": daily_unique_users,
+                    "percentage_of_total_users": percentage_of_total_users,
+                }
+            )
 
         return {"chart_data": chart_data}
 
@@ -794,7 +964,11 @@ async def get_open_interest(
         query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
         results = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "coin": row["coin"], "open_interest": row["open_interest"]}
+            {
+                "time": row["time"],
+                "coin": row["coin"],
+                "open_interest": row["open_interest"],
+            }
             for row in results
         ]
         return {"chart_data": chart_data}
@@ -819,7 +993,11 @@ async def get_funding_rate(
         query = apply_filters(query, funding_cache, start_date, end_date, coins)
         results = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "coin": row["coin"], "sum_funding": row["sum_funding"] * 365}
+            {
+                "time": row["time"],
+                "coin": row["coin"],
+                "sum_funding": row["sum_funding"] * 365,
+            }
             for row in results
         ]
         return {"chart_data": chart_data}
@@ -889,7 +1067,9 @@ async def get_cumulative_inflow(
         base_query = (
             select(
                 non_mm_ledger_updates_cache.c.time,
-                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label("inflow_per_day"),
+                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label(
+                    "inflow_per_day"
+                ),
             )
             .group_by(non_mm_ledger_updates_cache.c.time)
             .order_by(non_mm_ledger_updates_cache.c.time)
@@ -901,15 +1081,12 @@ async def get_cumulative_inflow(
 
         query = filtered_base_query.alias("inflows_per_day")
 
-        cumulative_query = (
-            select(
-                query.c.time,
-                func.sum(query.c.inflow_per_day)
-                .over(order_by=query.c.time)
-                .label("cumulative_inflow"),
-            )
-            .order_by(query.c.time)
-        )
+        cumulative_query = select(
+            query.c.time,
+            func.sum(query.c.inflow_per_day)
+            .over(order_by=query.c.time)
+            .label("cumulative_inflow"),
+        ).order_by(query.c.time)
 
         results = await database.fetch_all(cumulative_query)
         chart_data = [
@@ -928,7 +1105,9 @@ async def get_daily_inflow(
         base_query = (
             select(
                 non_mm_ledger_updates_cache.c.time,
-                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label("inflow_per_day"),
+                func.sum(non_mm_ledger_updates_cache.c.sum_delta_usd).label(
+                    "inflow_per_day"
+                ),
             )
             .group_by(non_mm_ledger_updates_cache.c.time)
             .order_by(non_mm_ledger_updates_cache.c.time)
@@ -938,22 +1117,18 @@ async def get_daily_inflow(
             base_query, non_mm_ledger_updates_cache, start_date, end_date
         )
 
-        query = (
-            select(
-                filtered_base_query.c.time.label("time"),
-                filtered_base_query.c.inflow_per_day.label("inflow"),
-            ).alias("inflows_per_day")
-        )
+        query = select(
+            filtered_base_query.c.time.label("time"),
+            filtered_base_query.c.inflow_per_day.label("inflow"),
+        ).alias("inflows_per_day")
 
         results = await database.fetch_all(query)
-        chart_data = [
-            {"time": row["time"], "inflow": row["inflow"]} for row in results
-        ]
+        chart_data = [{"time": row["time"], "inflow": row["inflow"]} for row in results]
         return {"chart_data": chart_data}
 
 
-@app.get("/hyperliquid/liquidity_per_symbol")
-async def get_liquidity_per_symbol(
+@app.get("/hyperliquid/liquidity_by_coin")
+async def get_liquidity_by_coin(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     notional_amounts: Optional[List[int]] = Query([1000, 3000, 10000]),
@@ -965,9 +1140,9 @@ async def get_liquidity_per_symbol(
                 select(
                     market_data_cache.c.time,
                     market_data_cache.c.coin,
-                    func.avg(
-                        market_data_cache.c.median_liquidity / notional
-                    ).label("average_liquidity_percentage"),
+                    func.avg(market_data_cache.c.median_liquidity / notional).label(
+                        "average_liquidity_percentage"
+                    ),
                 )
                 .group_by(market_data_cache.c.time, market_data_cache.c.coin)
                 .order_by(market_data_cache.c.time, market_data_cache.c.coin)
@@ -995,10 +1170,15 @@ async def get_liquidity_per_symbol(
         return data
 
 
-async def get_table_data(table, group_by_column, sum_column, start_date, end_date, coins, limit):
+async def get_table_data(
+    table, group_by_column, sum_column, start_date, end_date, coins, limit
+):
     async with database.transaction():
         query = (
-            select(table.c[group_by_column], func.sum(table.c[sum_column]).label(sum_column))
+            select(
+                table.c[group_by_column],
+                func.sum(table.c[sum_column]).label(sum_column),
+            )
             .group_by(table.c[group_by_column])
             .order_by(desc(sum_column))
             .limit(limit)

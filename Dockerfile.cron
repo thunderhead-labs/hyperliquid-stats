@@ -9,4 +9,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD cron -f
+# copy your cron file to the cron.d directory
+COPY scripts/cronjobs /etc/cron.d/cronjobs
+
+# give the file the appropriate permissions
+RUN chmod 0644 /etc/cron.d/cronjobs
+
+# apply the cron job
+RUN crontab /etc/cron.d/cronjobs
+
+CMD ["cron", "-f"]
