@@ -1,9 +1,9 @@
 import json
-import threading
-import time
 from datetime import datetime
 from typing import Optional, List
 
+from databases import Database
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Query
 from sqlalchemy import (
     create_engine,
@@ -17,9 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.sql.expression import desc, select
 from sqlalchemy.sql.functions import coalesce
 from starlette.middleware.cors import CORSMiddleware
-from databases import Database
 
-from metrics import update_is_online, measure_api_latency
+from metrics import measure_api_latency, update_is_online
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -51,6 +50,7 @@ hlp_vault_addresses = [
 ]
 
 app = FastAPI()
+scheduler = BackgroundScheduler()
 
 origins = config["origins"]
 
@@ -66,11 +66,14 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await database.connect()
+    scheduler.add_job(update_is_online, "interval", seconds=60)
+    scheduler.start()
 
 
 @app.on_event("shutdown")
 async def shutdown():
     await database.disconnect()
+    scheduler.shutdown()
 
 
 def apply_filters(
@@ -1308,17 +1311,7 @@ async def get_largest_user_trade_count(
         return {"table_data": table_data}
 
 
-def monitor_health(interval: int):
-    while True:
-        update_is_online()
-        print(f"export_health_metrics {datetime.utcnow()}")
-        time.sleep(interval)
-
-
 if __name__ == "__main__":
     import uvicorn
-
-    health_thread = threading.Thread(target=monitor_health, args=(60,))
-    health_thread.start()
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

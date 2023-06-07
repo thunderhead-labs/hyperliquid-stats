@@ -5,10 +5,8 @@ from prometheus_client import (
     CollectorRegistry,
 )
 from prometheus_client.metrics import MetricWrapperBase
-from prometheus_client.multiprocess import MultiProcessCollector
 
 registry = CollectorRegistry()
-MultiProcessCollector(registry)
 
 
 def start_prometheus_server(port: int = 9000):
