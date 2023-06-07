@@ -6,6 +6,9 @@ services:
       dockerfile: Dockerfile.server
     ports:
       - 8000:8000
+    environment:
+      prometheus_multiproc_dir: /app
+
   database:
     image: postgres:latest
     restart: always
@@ -23,3 +26,26 @@ services:
       - ./scripts:/app/scripts
       - ./config.json:/app/config.json
     command: ["cron", "-f", "/app/scripts/cronjobs"]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    user: root
+    volumes:
+      - prometheus:/data
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/data/prom"
+      - "--log.level=warn"
+      - "--web.enable-lifecycle"
+      - "--storage.tsdb.min-block-duration=2h"
+      - "--storage.tsdb.max-block-duration=2h"
+      - "--web.listen-address=0.0.0.0:9090"
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+
+volumes:
+  prometheus: {}

@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from datetime import datetime
 from typing import Optional, List
 
@@ -16,6 +18,8 @@ from sqlalchemy.sql.expression import desc, select
 from sqlalchemy.sql.functions import coalesce
 from starlette.middleware.cors import CORSMiddleware
 from databases import Database
+
+from metrics import update_is_online, measure_api_latency
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -84,6 +88,7 @@ def apply_filters(
 
 
 @app.get("/hyperliquid/total_users")
+@measure_api_latency()
 async def get_total_users(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -98,6 +103,7 @@ async def get_total_users(
 
 
 @app.get("/hyperliquid/total_usd_volume")
+@measure_api_latency()
 async def get_total_volume(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -112,6 +118,7 @@ async def get_total_volume(
 
 
 @app.get("/hyperliquid/total_deposits")
+@measure_api_latency()
 async def get_total_deposits(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -127,6 +134,7 @@ async def get_total_deposits(
 
 
 @app.get("/hyperliquid/total_withdrawals")
+@measure_api_latency()
 async def get_total_withdrawals(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -142,6 +150,7 @@ async def get_total_withdrawals(
 
 
 @app.get("/hyperliquid/total_notional_liquidated")
+@measure_api_latency()
 async def get_total_notional_liquidated(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -189,6 +198,7 @@ async def get_cumulative_chart_data(table, column, start_date, end_date, coins):
 
 
 @app.get("/hyperliquid/cumulative_usd_volume")
+@measure_api_latency()
 async def get_cumulative_usd_volume(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -201,6 +211,7 @@ async def get_cumulative_usd_volume(
 
 
 @app.get("/hyperliquid/daily_usd_volume")
+@measure_api_latency()
 async def get_daily_usd_volume(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -225,6 +236,7 @@ async def get_daily_usd_volume(
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_coin")
+@measure_api_latency()
 async def get_daily_usd_volume_by_coin(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -253,6 +265,7 @@ async def get_daily_usd_volume_by_coin(
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_crossed")
+@measure_api_latency()
 async def get_daily_usd_volume_by_crossed(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -281,6 +294,7 @@ async def get_daily_usd_volume_by_crossed(
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_user")
+@measure_api_latency()
 async def get_daily_usd_volume_by_user(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -384,6 +398,7 @@ async def get_daily_usd_volume_by_user(
 
 
 @app.get("/hyperliquid/cumulative_trades")
+@measure_api_latency()
 async def get_cumulative_trades(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -396,6 +411,7 @@ async def get_cumulative_trades(
 
 
 @app.get("/hyperliquid/daily_trades")
+@measure_api_latency()
 async def get_daily_trades(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -419,6 +435,7 @@ async def get_daily_trades(
 
 
 @app.get("/hyperliquid/daily_trades_by_coin")
+@measure_api_latency()
 async def get_daily_trades_by_coin(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -447,6 +464,7 @@ async def get_daily_trades_by_coin(
 
 
 @app.get("/hyperliquid/daily_trades_by_crossed")
+@measure_api_latency()
 async def get_daily_trades_by_crossed(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -475,6 +493,7 @@ async def get_daily_trades_by_crossed(
 
 
 @app.get("/hyperliquid/daily_trades_by_user")
+@measure_api_latency()
 async def get_daily_trades_by_user(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -578,6 +597,7 @@ async def get_daily_trades_by_user(
 
 
 @app.get("/hyperliquid/cumulative_user_pnl")
+@measure_api_latency()
 async def get_cumulative_user_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -632,6 +652,7 @@ async def get_cumulative_user_pnl(
 
 
 @app.get("/hyperliquid/user_pnl")
+@measure_api_latency()
 async def get_user_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -684,6 +705,7 @@ async def get_user_pnl(
 
 
 @app.get("/hyperliquid/hlp_liquidator_pnl")
+@measure_api_latency()
 async def get_hlp_liquidator_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -735,6 +757,7 @@ async def get_hlp_liquidator_pnl(
 
 
 @app.get("/hyperliquid/cumulative_hlp_liquidator_pnl")
+@measure_api_latency()
 async def get_cumulative_hlp_liquidator_pnl(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -788,6 +811,7 @@ async def get_cumulative_hlp_liquidator_pnl(
 
 
 @app.get("/hyperliquid/cumulative_liquidated_notional")
+@measure_api_latency()
 async def get_cumulative_liquidated_notional(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -800,6 +824,7 @@ async def get_cumulative_liquidated_notional(
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_total")
+@measure_api_latency()
 async def get_daily_notional_liquidated_total(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -828,6 +853,7 @@ async def get_daily_notional_liquidated_total(
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_by_leverage_type")
+@measure_api_latency()
 async def get_daily_notional_liquidated_by_leverage_type(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -858,6 +884,7 @@ async def get_daily_notional_liquidated_by_leverage_type(
 
 
 @app.get("/hyperliquid/daily_unique_users")
+@measure_api_latency()
 async def get_daily_unique_users(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -884,6 +911,7 @@ async def get_daily_unique_users(
 
 
 @app.get("/hyperliquid/daily_unique_users_by_coin")
+@measure_api_latency()
 async def get_daily_unique_users_by_coin(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -946,6 +974,7 @@ async def get_daily_unique_users_by_coin(
 
 
 @app.get("/hyperliquid/open_interest")
+@measure_api_latency()
 async def get_open_interest(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -975,6 +1004,7 @@ async def get_open_interest(
 
 
 @app.get("/hyperliquid/funding_rate")
+@measure_api_latency()
 async def get_funding_rate(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1004,6 +1034,7 @@ async def get_funding_rate(
 
 
 @app.get("/hyperliquid/cumulative_new_users")
+@measure_api_latency()
 async def get_cumulative_new_users(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1059,6 +1090,7 @@ async def get_cumulative_new_users(
 
 
 @app.get("/hyperliquid/cumulative_inflow")
+@measure_api_latency()
 async def get_cumulative_inflow(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1097,6 +1129,7 @@ async def get_cumulative_inflow(
 
 
 @app.get("/hyperliquid/daily_inflow")
+@measure_api_latency()
 async def get_daily_inflow(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1128,6 +1161,7 @@ async def get_daily_inflow(
 
 
 @app.get("/hyperliquid/liquidity_by_coin")
+@measure_api_latency()
 async def get_liquidity_by_coin(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1192,6 +1226,7 @@ async def get_table_data(
 
 
 @app.get("/hyperliquid/largest_users_by_usd_volume")
+@measure_api_latency()
 async def get_largest_users_by_usd_volume(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1205,12 +1240,13 @@ async def get_largest_users_by_usd_volume(
             start_date,
             end_date,
             coins,
-            10,
+            1000,
         )
     }
 
 
 @app.get("/hyperliquid/largest_user_depositors")
+@measure_api_latency()
 async def get_largest_user_depositors(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1223,12 +1259,13 @@ async def get_largest_user_depositors(
             start_date,
             end_date,
             None,
-            10,
+            1000,
         )
     }
 
 
 @app.get("/hyperliquid/largest_liquidated_notional_by_user")
+@measure_api_latency()
 async def get_largest_liquidated_notional_by_user(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1241,12 +1278,13 @@ async def get_largest_liquidated_notional_by_user(
             start_date,
             end_date,
             None,
-            10,
+            1000,
         )
     }
 
 
 @app.get("/hyperliquid/largest_user_trade_count")
+@measure_api_latency()
 async def get_largest_user_trade_count(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -1260,7 +1298,7 @@ async def get_largest_user_trade_count(
             )
             .group_by(non_mm_trades_cache.c["user"])
             .order_by(desc("trade_count"))
-            .limit(10)
+            .limit(1000)
         )
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         results = await database.fetch_all(query)
@@ -1270,7 +1308,17 @@ async def get_largest_user_trade_count(
         return {"table_data": table_data}
 
 
+def monitor_health(interval: int):
+    while True:
+        update_is_online()
+        print(f"export_health_metrics {datetime.utcnow()}")
+        time.sleep(interval)
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    health_thread = threading.Thread(target=monitor_health, args=(60,))
+    health_thread.start()
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,33 @@
+global:
+  scrape_interval:     1m # By default, scrape targets every 15 seconds.
+  evaluation_interval: 1m # By default, scrape targets every 15 seconds.
+
+remote_write:
+- url: https://prometheus-prod-10-prod-us-central-0.grafana.net/api/prom/push
+  basic_auth:
+    username: username
+    password: password
+
+scrape_configs:
+ - job_name: "system"
+   scrape_interval: 1m
+   static_configs:
+   - targets: ['node-exporter:9100']
+     labels:
+       region: us-east
+       type: system
+       server: 143.198.114.65
+       instance: 143.198.114.65
+   metric_relabel_configs:
+   - source_labels: [__name__]
+     regex: node_cpu_seconds_total|node_boot_time_seconds|node_load(5|15)|node_memory_Mem(Total|Free|Available)_bytes|node_memory_Swap(Total|Free)_bytes|node_memory_Swap(Total|Free)_bytes|node_memory_Swap(Total|Free)_bytes|node_memory_(Cached|Buffers|SReclaimable)_bytes|node_filesystem_(avail|size)_bytes|node_network_(receive|transmit)_bytes_total
+     action: keep
+ - job_name: "hyperliquid-stats"
+   scrape_interval: 1m
+   static_configs:
+   - targets: ['hyperliquid-stats:9000']
+     labels:
+       region: us-east
+       type: system
+       server: 143.198.114.65
+       instance: 143.198.114.65
