@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 
+from cachetools import TTLCache
 from databases import Database
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Query
@@ -62,6 +63,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+cache = TTLCache(maxsize=500, ttl=86400)
+
+
+def get_data_from_cache(key):
+    if key in cache:
+        return cache[key]
+    return None
+
+
+def add_data_to_cache(key, data):
+    cache[key] = data
+
 
 @app.on_event("startup")
 async def startup():
@@ -88,84 +101,6 @@ def apply_filters(
     if coins:
         query = query.where(table.c.coin.in_(coins))
     return query
-
-
-@app.get("/hyperliquid/total_users")
-@measure_api_latency()
-async def get_total_users(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
-):
-    query = select(
-        func.count(distinct(non_mm_trades_cache.c.user)).label("total_users")
-    )
-    query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
-    result = await database.fetch_one(query)
-    return {"total_users": result["total_users"]}
-
-
-@app.get("/hyperliquid/total_usd_volume")
-@measure_api_latency()
-async def get_total_volume(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
-):
-    query = select(
-        func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume")
-    ).select_from(non_mm_trades_cache)
-    query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
-    result = await database.fetch_one(query)
-    return {"total_usd_volume": result["total_usd_volume"]}
-
-
-@app.get("/hyperliquid/total_deposits")
-@measure_api_latency()
-async def get_total_deposits(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-):
-    query = (
-        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_deposits"))
-        .where(non_mm_ledger_updates.c.delta_usd > 0)
-        .select_from(non_mm_ledger_updates)
-    )
-    query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
-    result = await database.fetch_one(query)
-    return {"total_deposits": result["total_deposits"]}
-
-
-@app.get("/hyperliquid/total_withdrawals")
-@measure_api_latency()
-async def get_total_withdrawals(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-):
-    query = (
-        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_withdrawals"))
-        .where(non_mm_ledger_updates.c.delta_usd < 0)
-        .select_from(non_mm_ledger_updates)
-    )
-    query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
-    result = await database.fetch_one(query)
-    return {"total_withdrawals": result["total_withdrawals"]}
-
-
-@app.get("/hyperliquid/total_notional_liquidated")
-@measure_api_latency()
-async def get_total_notional_liquidated(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-):
-    query = select(
-        func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label(
-            "total_notional_liquidated"
-        )
-    ).select_from(liquidations_cache)
-    query = apply_filters(query, liquidations_cache, start_date, end_date)
-    result = await database.fetch_one(query)
-    return {"total_notional_liquidated": result["total_notional_liquidated"]}
 
 
 async def get_cumulative_chart_data(table, column, start_date, end_date, coins):
@@ -200,26 +135,182 @@ async def get_cumulative_chart_data(table, column, start_date, end_date, coins):
         return chart_data
 
 
-@app.get("/hyperliquid/cumulative_usd_volume")
-@measure_api_latency()
-async def get_cumulative_usd_volume(
+@app.get("/hyperliquid/total_users")
+@measure_api_latency(endpoint="total_users")
+async def get_total_users(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"total_users_{start_date}_{end_date}_{coins}"
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"total_users": cached_data}
+
+    query = select(
+        func.count(distinct(non_mm_trades_cache.c.user)).label("total_users")
+    )
+    query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
+    result = await database.fetch_one(query)
+
+    # Cache result
+    add_data_to_cache(key, result["total_users"])
+
+    return {"total_users": result["total_users"]}
+
+
+@app.get("/hyperliquid/total_usd_volume")
+@measure_api_latency(endpoint="total_usd_volume")
+async def get_total_volume(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_usd_volume_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"total_usd_volume": cached_data}
+
+    query = select(
+        func.sum(non_mm_trades_cache.c.usd_volume).label("total_usd_volume")
+    ).select_from(non_mm_trades_cache)
+    query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
+    result = await database.fetch_one(query)
+
+    # Cache result
+    add_data_to_cache(key, result["total_usd_volume"])
+
+    return {"total_usd_volume": result["total_usd_volume"]}
+
+
+@app.get("/hyperliquid/total_deposits")
+@measure_api_latency(endpoint="total_deposits")
+async def get_total_deposits(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_deposits_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"total_deposits": cached_data}
+
+    query = (
+        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_deposits"))
+        .where(non_mm_ledger_updates.c.delta_usd > 0)
+        .select_from(non_mm_ledger_updates)
+    )
+    query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
+    result = await database.fetch_one(query)
+
+    # Cache result
+    add_data_to_cache(key, result["total_deposits"])
+
+    return {"total_deposits": result["total_deposits"]}
+
+
+@app.get("/hyperliquid/total_withdrawals")
+@measure_api_latency(endpoint="total_withdrawals")
+async def get_total_withdrawals(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_withdrawals_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"total_withdrawals": cached_data}
+
+    query = (
+        select(func.sum(non_mm_ledger_updates.c.delta_usd).label("total_withdrawals"))
+        .where(non_mm_ledger_updates.c.delta_usd < 0)
+        .select_from(non_mm_ledger_updates)
+    )
+    query = apply_filters(query, non_mm_ledger_updates, start_date, end_date)
+    result = await database.fetch_one(query)
+
+    # Cache result
+    add_data_to_cache(key, result["total_withdrawals"])
+
+    return {"total_withdrawals": result["total_withdrawals"]}
+
+
+@app.get("/hyperliquid/total_notional_liquidated")
+@measure_api_latency(endpoint="total_notional_liquidated")
+async def get_total_notional_liquidated(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_notional_liquidated_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"total_notional_liquidated": cached_data}
+
+    query = select(
+        func.sum(liquidations_cache.c.sum_liquidated_ntl_pos).label(
+            "total_notional_liquidated"
+        )
+    ).select_from(liquidations_cache)
+    query = apply_filters(query, liquidations_cache, start_date, end_date)
+    result = await database.fetch_one(query)
+
+    # Cache result
+    add_data_to_cache(key, result["total_notional_liquidated"])
+
+    return {"total_notional_liquidated": result["total_notional_liquidated"]}
+
+
+@app.get("/hyperliquid/cumulative_usd_volume")
+@measure_api_latency(endpoint="cumulative_usd_volume")
+async def get_cumulative_usd_volume(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
+):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_usd_volume_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     chart_data = await get_cumulative_chart_data(
         non_mm_trades_cache, "usd_volume", start_date, end_date, coins
     )
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
     return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_usd_volume")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_usd_volume")
 async def get_daily_usd_volume(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_usd_volume_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -235,15 +326,27 @@ async def get_daily_usd_volume(
             {"time": row["time"], "daily_usd_volume": row["daily_usd_volume"]}
             for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_coin")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_usd_volume_by_coin")
 async def get_daily_usd_volume_by_coin(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_usd_volume_by_coin_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -264,15 +367,27 @@ async def get_daily_usd_volume_by_coin(
             }
             for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_crossed")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_usd_volume_by_crossed")
 async def get_daily_usd_volume_by_crossed(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_usd_volume_by_crossed_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -293,15 +408,27 @@ async def get_daily_usd_volume_by_crossed(
             }
             for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_usd_volume_by_user")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_usd_volume_by_user")
 async def get_daily_usd_volume_by_user(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_usd_volume_by_user_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         base_query = select(
             non_mm_trades_cache.c.time.label("date"),
@@ -359,10 +486,10 @@ async def get_daily_usd_volume_by_user(
                 total_usd_volume_subquery.c.date,
                 literal("Other").label("user"),
                 (
-                    total_usd_volume_subquery.c.total_usd_volume
-                    - coalesce(
-                        top_users_per_day_subquery.c.top_users_total_usd_volume, 0
-                    )
+                        total_usd_volume_subquery.c.total_usd_volume
+                        - coalesce(
+                    top_users_per_day_subquery.c.top_users_total_usd_volume, 0
+                )
                 ).label("total_usd_volume"),
             ).select_from(
                 total_usd_volume_subquery.join(
@@ -390,36 +517,59 @@ async def get_daily_usd_volume_by_user(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "date": row["date"],
+                "time": row["date"],
                 "user": row["user"],
                 "daily_usd_volume": row["total_usd_volume"],
             }
             for row in result
         ]
 
-        return {"chart_data": chart_data}
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_trades")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_trades")
 async def get_cumulative_trades(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_trades_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     chart_data = await get_cumulative_chart_data(
         non_mm_trades_cache, "group_count", start_date, end_date, coins
     )
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
     return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_trades")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_trades")
 async def get_daily_trades(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_trades_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -432,17 +582,29 @@ async def get_daily_trades(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         result = await database.fetch_all(query)
         chart_data = [
-            {"date": row["time"], "daily_trades": row["daily_trades"]} for row in result
+            {"time": row["time"], "daily_trades": row["daily_trades"]} for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_trades_by_coin")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_trades_by_coin")
 async def get_daily_trades_by_coin(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_trades_by_coin_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -463,15 +625,27 @@ async def get_daily_trades_by_coin(
             }
             for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_trades_by_crossed")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_trades_by_crossed")
 async def get_daily_trades_by_crossed(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_trades_by_crossed_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -492,15 +666,27 @@ async def get_daily_trades_by_crossed(
             }
             for row in result
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_trades_by_user")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_trades_by_user")
 async def get_daily_trades_by_user(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_trades_by_user_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         base_query = select(
             non_mm_trades_cache.c.time.label("date"),
@@ -558,10 +744,10 @@ async def get_daily_trades_by_user(
                 total_group_count_subquery.c.date,
                 literal("Other").label("user"),
                 (
-                    total_group_count_subquery.c.total_group_count
-                    - coalesce(
-                        top_users_per_day_subquery.c.top_users_total_group_count, 0
-                    )
+                        total_group_count_subquery.c.total_group_count
+                        - coalesce(
+                    top_users_per_day_subquery.c.top_users_total_group_count, 0
+                )
                 ).label("total_group_count"),
             ).select_from(
                 total_group_count_subquery.join(
@@ -589,22 +775,33 @@ async def get_daily_trades_by_user(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "date": row["date"],
+                "time": row["date"],
                 "user": row["user"],
                 "daily_group_count": row["total_group_count"],
             }
             for row in result
         ]
 
-        return {"chart_data": chart_data}
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_user_pnl")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_user_pnl")
 async def get_cumulative_user_pnl(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_user_pnl_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Exclude vault addresses and filter on 'is_vault=false'
         subquery = (
@@ -635,8 +832,8 @@ async def get_cumulative_user_pnl(
                         subquery.c.sum_account_value
                         - subquery.c.previous_sum_account_value
                         - (
-                            subquery.c.sum_cum_ledger
-                            - subquery.c.previous_sum_cum_ledger
+                                subquery.c.sum_cum_ledger
+                                - subquery.c.previous_sum_cum_ledger
                         )
                     )
                     .over(order_by=subquery.c.time)
@@ -651,15 +848,27 @@ async def get_cumulative_user_pnl(
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
-        return chart_data
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/user_pnl")
-@measure_api_latency()
+@measure_api_latency(endpoint="user_pnl")
 async def get_user_pnl(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"user_pnl_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Exclude vault addresses and filter on 'is_vault=false'
         subquery = (
@@ -690,8 +899,8 @@ async def get_user_pnl(
                         subquery.c.sum_account_value
                         - subquery.c.previous_sum_account_value
                         - (
-                            subquery.c.sum_cum_ledger
-                            - subquery.c.previous_sum_cum_ledger
+                                subquery.c.sum_cum_ledger
+                                - subquery.c.previous_sum_cum_ledger
                         )
                     ).label("total_pnl"),
                 ]
@@ -704,15 +913,27 @@ async def get_user_pnl(
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
-        return chart_data
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/hlp_liquidator_pnl")
-@measure_api_latency()
+@measure_api_latency(endpoint="hlp_liquidator_pnl")
 async def get_hlp_liquidator_pnl(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"hlp_liquidator_pnl_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Include only vault addresses
         subquery = (
@@ -742,8 +963,8 @@ async def get_hlp_liquidator_pnl(
                         subquery.c.sum_account_value
                         - subquery.c.previous_sum_account_value
                         - (
-                            subquery.c.sum_cum_ledger
-                            - subquery.c.previous_sum_cum_ledger
+                                subquery.c.sum_cum_ledger
+                                - subquery.c.previous_sum_cum_ledger
                         )
                     ).label("total_pnl"),
                 ]
@@ -756,15 +977,27 @@ async def get_hlp_liquidator_pnl(
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
-        return chart_data
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_hlp_liquidator_pnl")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_hlp_liquidator_pnl")
 async def get_cumulative_hlp_liquidator_pnl(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_hlp_liquidator_pnl_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Include only vault addresses
         subquery = (
@@ -794,8 +1027,8 @@ async def get_cumulative_hlp_liquidator_pnl(
                         subquery.c.sum_account_value
                         - subquery.c.previous_sum_account_value
                         - (
-                            subquery.c.sum_cum_ledger
-                            - subquery.c.previous_sum_cum_ledger
+                                subquery.c.sum_cum_ledger
+                                - subquery.c.previous_sum_cum_ledger
                         )
                     )
                     .over(order_by=subquery.c.time)
@@ -810,28 +1043,52 @@ async def get_cumulative_hlp_liquidator_pnl(
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
-        return chart_data
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_liquidated_notional")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_liquidated_notional")
 async def get_cumulative_liquidated_notional(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_liquidated_notional_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         chart_data = await get_cumulative_chart_data(
             liquidations_cache, "sum_liquidated_ntl_pos", start_date, end_date, None
         )
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_total")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_notional_liquidated_total")
 async def get_daily_notional_liquidated_total(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_notional_liquidated_total_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -852,15 +1109,27 @@ async def get_daily_notional_liquidated_total(
             }
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_by_leverage_type")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_notional_liquidated_by_leverage_type")
 async def get_daily_notional_liquidated_by_leverage_type(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_notional_liquidated_by_leverage_type_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -883,16 +1152,28 @@ async def get_daily_notional_liquidated_by_leverage_type(
             }
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_unique_users")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_unique_users")
 async def get_daily_unique_users(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_unique_users_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -910,15 +1191,27 @@ async def get_daily_unique_users(
             {"time": row["time"], "daily_unique_users": row["daily_unique_users"]}
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_unique_users_by_coin")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_unique_users_by_coin")
 async def get_daily_unique_users_by_coin(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_unique_users_by_coin_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Get the total unique users per day
         total_users_query = (
@@ -973,16 +1266,27 @@ async def get_daily_unique_users_by_coin(
                 }
             )
 
-        return {"chart_data": chart_data}
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/open_interest")
-@measure_api_latency()
+@measure_api_latency(endpoint="open_interest")
 async def get_open_interest(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"open_interest_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -1003,16 +1307,28 @@ async def get_open_interest(
             }
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/funding_rate")
-@measure_api_latency()
+@measure_api_latency(endpoint="funding_rate")
 async def get_funding_rate(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"funding_rate_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -1033,16 +1349,28 @@ async def get_funding_rate(
             }
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_new_users")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_new_users")
 async def get_cumulative_new_users(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_new_users_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         # Apply filters to non_mm_trades_cache
         filtered_trades = apply_filters(
@@ -1082,22 +1410,33 @@ async def get_cumulative_new_users(
         # Convert result to JSON-serializable format
         chart_data = [
             {
-                "date": row["date"].strftime("%Y-%m-%d"),
+                "time": row["date"],
                 "daily_new_users": row["daily_new_users"],
                 "cumulative_new_users": row["cumulative_new_users"],
             }
             for row in results
         ]
 
-        return {"chart_data": chart_data}
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_inflow")
-@measure_api_latency()
+@measure_api_latency(endpoint="cumulative_inflow")
 async def get_cumulative_inflow(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"cumulative_inflow_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         base_query = (
             select(
@@ -1128,15 +1467,27 @@ async def get_cumulative_inflow(
             {"time": row["time"], "cumulative_inflow": row["cumulative_inflow"]}
             for row in results
         ]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/daily_inflow")
-@measure_api_latency()
+@measure_api_latency(endpoint="daily_inflow")
 async def get_daily_inflow(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
+    # Create unique key using filters and endpoint name
+    key = f"daily_inflow_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
     async with database.transaction():
         base_query = (
             select(
@@ -1160,16 +1511,28 @@ async def get_daily_inflow(
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row["time"], "inflow": row["inflow"]} for row in results]
-        return {"chart_data": chart_data}
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/liquidity_by_coin")
-@measure_api_latency()
+@measure_api_latency(endpoint="liquidity_by_coin")
 async def get_liquidity_by_coin(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    notional_amounts: Optional[List[int]] = Query([1000, 3000, 10000]),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        notional_amounts: Optional[List[int]] = Query([1000, 3000, 10000]),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"liquidity_by_coin_{start_date}_{end_date}_{notional_amounts}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return cached_data
+
     async with database.transaction():
         data = {}
         for notional in notional_amounts:
@@ -1204,6 +1567,9 @@ async def get_liquidity_by_coin(
                     }
                 )
 
+        # Cache result
+        add_data_to_cache(key, data)
+
         return data
 
 
@@ -1229,70 +1595,111 @@ async def get_table_data(
 
 
 @app.get("/hyperliquid/largest_users_by_usd_volume")
-@measure_api_latency()
+@measure_api_latency(endpoint="largest_users_by_usd_volume")
 async def get_largest_users_by_usd_volume(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
-    return {
-        "table_data": await get_table_data(
-            non_mm_trades_cache,
-            "user",
-            "usd_volume",
-            start_date,
-            end_date,
-            coins,
-            1000,
-        )
-    }
+    # Create unique key using filters and endpoint name
+    key = f"largest_users_by_usd_volume_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"table_data": cached_data}
+
+    table_data = await get_table_data(
+        non_mm_trades_cache,
+        "user",
+        "usd_volume",
+        start_date,
+        end_date,
+        coins,
+        1000,
+    )
+
+    # Cache result
+    add_data_to_cache(key, table_data)
+
+    return {"table_data": table_data}
 
 
 @app.get("/hyperliquid/largest_user_depositors")
-@measure_api_latency()
+@measure_api_latency(endpoint="largest_user_depositors")
 async def get_largest_user_depositors(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
-    return {
-        "table_data": await get_table_data(
-            non_mm_ledger_updates_cache,
-            "user",
-            "sum_delta_usd",
-            start_date,
-            end_date,
-            None,
-            1000,
-        )
-    }
+    # Create unique key using filters and endpoint name
+    key = f"largest_user_depositors_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"table_data": cached_data}
+
+    table_data = await get_table_data(
+        non_mm_ledger_updates_cache,
+        "user",
+        "sum_delta_usd",
+        start_date,
+        end_date,
+        None,
+        1000,
+    )
+
+    # Cache result
+    add_data_to_cache(key, table_data)
+
+    return {"table_data": table_data}
 
 
 @app.get("/hyperliquid/largest_liquidated_notional_by_user")
-@measure_api_latency()
+@measure_api_latency(endpoint="largest_liquidated_notional_by_user")
 async def get_largest_liquidated_notional_by_user(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
 ):
-    return {
-        "table_data": await get_table_data(
-            liquidations_cache,
-            "user",
-            "sum_liquidated_account_value",
-            start_date,
-            end_date,
-            None,
-            1000,
-        )
-    }
+    # Create unique key using filters and endpoint name
+    key = f"largest_liquidated_notional_by_user_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"table_data": cached_data}
+
+    table_data = await get_table_data(
+        liquidations_cache,
+        "user",
+        "sum_liquidated_account_value",
+        start_date,
+        end_date,
+        None,
+        1000,
+    )
+
+    # Cache result
+    add_data_to_cache(key, table_data)
+
+    return {"table_data": table_data}
 
 
 @app.get("/hyperliquid/largest_user_trade_count")
-@measure_api_latency()
+@measure_api_latency(endpoint="largest_user_trade_count")
 async def get_largest_user_trade_count(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    coins: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
 ):
+    # Create unique key using filters and endpoint name
+    key = f"largest_user_trade_count_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"table_data": cached_data}
+
     async with database.transaction():
         query = (
             select(
@@ -1308,7 +1715,11 @@ async def get_largest_user_trade_count(
         table_data = [
             {"name": row["user"], "value": row["trade_count"]} for row in results
         ]
-        return {"table_data": table_data}
+
+    # Cache result
+    add_data_to_cache(key, table_data)
+
+    return {"table_data": table_data}
 
 
 if __name__ == "__main__":

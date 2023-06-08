@@ -345,11 +345,11 @@ def main():
 
         # Check cache table max date and compare with the main table
         cache_max_date = get_latest_date(db_uri, f"{table}_cache")
-        if cache_max_date and cache_max_date.date() != latest_date:
+        if cache_max_date and cache_max_date.date() != get_latest_date(db_uri, table):
             send_alert(
-                f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({latest_date})"
+                f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({get_latest_date(db_uri, table)})"
             )
-        else:
+        elif table_name == "market_data":
             delete_old_data_from_market_data_table(db_uri, cache_max_date)
 
 

@@ -12,3 +12,4 @@ databases~=0.7.0
 asyncpg==0.27.0
 prometheus-client==0.16.0
 APScheduler~=3.10.1
+cachetools~=5.2.0
