@@ -1275,9 +1275,9 @@ async def get_daily_unique_users_by_coin(
 @app.get("/hyperliquid/open_interest")
 @measure_api_latency(endpoint="open_interest")
 async def get_open_interest(
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        coins: Optional[List[str]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = None,
 ):
     # Create unique key using filters and endpoint name
     key = f"open_interest_{start_date}_{end_date}_{coins}"
@@ -1292,9 +1292,13 @@ async def get_open_interest(
             select(
                 asset_ctxs_cache.c.time,
                 asset_ctxs_cache.c.coin,
-                func.sum(asset_ctxs_cache.c.sum_open_interest).label("open_interest"),
+                (func.sum(asset_ctxs_cache.c.sum_open_interest)
+                 * func.avg(asset_ctxs_cache.c.avg_oracle_px)).label("open_interest"),
             )
-            .group_by(asset_ctxs_cache.c.time, asset_ctxs_cache.c.coin)
+            .group_by(
+                asset_ctxs_cache.c.time,
+                asset_ctxs_cache.c.coin,
+            )
             .order_by(asset_ctxs_cache.c.time)
         )
         query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
