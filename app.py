@@ -1292,7 +1292,7 @@ async def get_open_interest(
             select(
                 asset_ctxs_cache.c.time,
                 asset_ctxs_cache.c.coin,
-                (func.sum(asset_ctxs_cache.c.sum_open_interest)
+                (func.sum(asset_ctxs_cache.c.avg_open_interest)
                  * func.avg(asset_ctxs_cache.c.avg_oracle_px)).label("open_interest"),
             )
             .group_by(

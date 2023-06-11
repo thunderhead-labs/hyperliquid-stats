@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS public.asset_ctxs_cache
     "time" timestamp NOT NULL,
     "coin" character varying(255) COLLATE pg_catalog."default" NOT NULL,
     sum_funding double precision NOT NULL,
-    sum_open_interest double precision NOT NULL,
+    avg_open_interest double precision NOT NULL,
     avg_prev_day_px double precision NOT NULL,
     sum_day_ntl_vlm double precision NOT NULL,
     avg_premium double precision NOT NULL,

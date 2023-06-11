@@ -25,7 +25,7 @@ table_to_file_name_map = {
 }
 
 # Load configuration from JSON file
-with open("/app/config.json", "r") as config_file:
+with open("../config.json", "r") as config_file:
     config = json.load(config_file)
 
 
@@ -64,33 +64,25 @@ def download_data_from_s3(bucket_name: str, file_name: str):
 def load_data_to_db(db_uri: str, table_name: str, file_name: str):
     engine = create_engine(db_uri)
     if "market_data" in file_name:
-        data = []
         with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
-            for line in f:
-                json_line = json.loads(line)
-
-                # Calculate liquidity
-                liquidity = 0
-                for level in json_line["raw"]["data"]["levels"]:
-                    for bid_or_ask in level:
-                        liquidity += float(bid_or_ask["px"]) * float(bid_or_ask["sz"])
-
-                json_line["liquidity"] = liquidity
-
-                # Serialize the 'levels' list as a JSON string
-                json_line["levels"] = json.dumps(json_line["raw"]["data"]["levels"])
-                data.append(json_line)
-        df = pd.json_normalize(data)
-        df.drop("raw.data.levels", inplace=True, axis=1)
-        df.rename(
-            columns={
-                "raw.channel": "channel",
-                "raw.data.coin": "coin",
-                "raw.data.time": "raw_time",
-            },
-            inplace=True,
-        )
-        # Loading market_data_snapshot_details
+            data = [
+                {
+                    "time": pd.Timestamp(json_line["time"]),
+                    "ver_num": json_line["ver_num"],
+                    "channel": json_line["raw"]["channel"],
+                    "coin": json_line["raw"]["data"]["coin"],
+                    "raw_time": json_line["raw"]["data"]["time"],
+                    "liquidity": sum(
+                        float(bid_or_ask["px"]) * float(bid_or_ask["sz"])
+                        for level in json_line["raw"]["data"]["levels"]
+                        for bid_or_ask in level
+                    ),
+                    "levels": json.dumps(json_line["raw"]["data"]["levels"])
+                }
+                for line in f
+                for json_line in [json.loads(line)]
+            ]
+        df = pd.DataFrame(data)
         df.to_sql("market_data", con=engine, if_exists="append", index=False)
     else:
         with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
@@ -98,7 +90,7 @@ def load_data_to_db(db_uri: str, table_name: str, file_name: str):
     df.to_sql(table_name, con=engine, if_exists="append", index=False)
 
 
-def get_latest_date(db_uri: str, table_name: str):
+def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
     engine = create_engine(db_uri)
     with engine.connect() as connection:
         result = connection.execute(text(f"SELECT max(time) FROM {table_name}"))
@@ -245,7 +237,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 .agg(
                     {
                         "funding": "sum",
-                        "open_interest": "sum",
+                        "open_interest": "mean",
                         "prev_day_px": "mean",
                         "day_ntl_vlm": "sum",
                         "premium": "mean",
@@ -261,7 +253,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             df_agg.columns = [
                 "coin",
                 "sum_funding",
-                "sum_open_interest",
+                "avg_open_interest",
                 "avg_prev_day_px",
                 "sum_day_ntl_vlm",
                 "avg_premium",
@@ -306,12 +298,12 @@ def main():
 
     for table in tables:
         table_name = table_to_file_name_map[table]
-        latest_date = get_latest_date(db_uri, table)
-        latest_date = (
-            latest_date.date()
-            if latest_date
-            else datetime.date.today() - datetime.timedelta(days=30)
-        )
+        latest_date = get_latest_date(db_uri, f'{table}_cache')
+        if isinstance(latest_date, datetime.datetime):
+            latest_date = latest_date.date()
+        elif not latest_date:
+            datetime.date.today() - datetime.timedelta(days=30)
+
         dates = generate_dates(latest_date)
         if not len(dates):
             send_alert(f"Nothing to process for {table} at {latest_date}")
@@ -345,7 +337,7 @@ def main():
 
         # Check cache table max date and compare with the main table
         cache_max_date = get_latest_date(db_uri, f"{table}_cache")
-        if cache_max_date and cache_max_date.date() != get_latest_date(db_uri, table):
+        if cache_max_date and str(cache_max_date.date())[:10] != str(get_latest_date(db_uri, table).date())[:10]:
             send_alert(
                 f"Cache table for {table} has a different max date ({cache_max_date}) than the main table ({get_latest_date(db_uri, table)})"
             )
