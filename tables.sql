@@ -180,7 +180,11 @@ CREATE INDEX idx_market_data_coin ON market_data(coin);
 CREATE TABLE market_data_cache (
     time DATE NOT NULL,
     coin VARCHAR(255) NOT NULL,
-    median_liquidity DOUBLE PRECISION NOT NULL
+    mid_price DOUBLE PRECISION NOT NULL,
+    median_liquidity DOUBLE PRECISION NOT NULL,
+    median_slippage_1000 DOUBLE PRECISION NOT NULL,
+    median_slippage_3000 DOUBLE PRECISION NOT NULL,
+    median_slippage_10000 DOUBLE PRECISION NOT NULL
 );
 
 CREATE INDEX idx_market_data_cache_time ON market_data_cache(time);

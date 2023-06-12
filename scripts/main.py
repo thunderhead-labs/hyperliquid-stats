@@ -62,31 +62,13 @@ def download_data_from_s3(bucket_name: str, file_name: str):
 
 
 def load_data_to_db(db_uri: str, table_name: str, file_name: str):
-    engine = create_engine(db_uri)
     if "market_data" in file_name:
-        with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
-            data = [
-                {
-                    "time": pd.Timestamp(json_line["time"]),
-                    "ver_num": json_line["ver_num"],
-                    "channel": json_line["raw"]["channel"],
-                    "coin": json_line["raw"]["data"]["coin"],
-                    "raw_time": json_line["raw"]["data"]["time"],
-                    "liquidity": sum(
-                        float(bid_or_ask["px"]) * float(bid_or_ask["sz"])
-                        for level in json_line["raw"]["data"]["levels"]
-                        for bid_or_ask in level
-                    ),
-                    "levels": json.dumps(json_line["raw"]["data"]["levels"])
-                }
-                for line in f
-                for json_line in [json.loads(line)]
-            ]
-        df = pd.DataFrame(data)
-        df.to_sql("market_data", con=engine, if_exists="append", index=False)
-    else:
-        with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
-            df = pd.read_csv(f)
+        return
+
+    with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
+        df = pd.read_csv(f)
+
+    engine = create_engine(db_uri)
     df.to_sql(table_name, con=engine, if_exists="append", index=False)
 
 
@@ -98,6 +80,7 @@ def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
 
 
 def send_alert(message: str):
+    return
     slack_token = config["slack_token"]
     if slack_token != "":
         client = WebClient(token=slack_token)
@@ -119,32 +102,102 @@ def generate_dates(start_date: datetime.date):
     return date_list
 
 
-def update_market_data_cache(db_uri: str, date: datetime.date):
+def calculate_slippage(row: dict, nominal_value: int):
+    # Get the ask levels
+    ask_levels = json.loads(row['levels'])[1]
+
+    # Calculate the total liquidity needed to fulfill the nominal value
+    total_liquidity_needed = nominal_value
+
+    # Calculate the average executed price and slippage
+    average_executed_price = 0
+    filled_liquidity = 0
+    for level in ask_levels:
+        liquidity = float(level['px']) * float(level['sz'])
+        price = float(level['px'])
+        if filled_liquidity + liquidity >= total_liquidity_needed:
+            # Calculate the remaining liquidity needed to fulfill the nominal value
+            remaining_liquidity = total_liquidity_needed - filled_liquidity
+
+            # Calculate the liquidity percentage filled at the current level
+            liquidity_percentage_filled = remaining_liquidity / total_liquidity_needed
+
+            # Calculate the average executed price based on the liquidity percentage filled
+            average_executed_price += liquidity_percentage_filled * price
+
+            filled_liquidity = total_liquidity_needed
+            break
+        else:
+            # Add the current level's liquidity to the filled liquidity
+            filled_liquidity += liquidity
+
+            # Calculate the liquidity percentage filled at the current level
+            liquidity_percentage_filled = liquidity / total_liquidity_needed
+
+            # Calculate the average executed price based on the liquidity percentage filled
+            average_executed_price += liquidity_percentage_filled * price
+
+    # Calculate the slippage
+    if filled_liquidity >= total_liquidity_needed:
+        slippage = abs(average_executed_price / row['mid'] - 1)
+    else:
+        slippage = 1
+
+    return slippage
+
+
+def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
     engine = create_engine(db_uri)
-    with engine.connect() as connection:
-        # Aggregate data from market_data table
-        query = text(
-            """
-        INSERT INTO market_data_cache (time, coin, median_liquidity)
-        SELECT 
-            DATE(time) AS time,
-            coin,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY liquidity) AS median_liquidity
-        FROM 
-            market_data
-        WHERE 
-            DATE(time) = :date
-        GROUP BY 
-            DATE(time), coin
-        """
-        )
-        connection.execute(query, date=date)
+    with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
+        data = [
+            {
+                "time": pd.Timestamp(json_line["time"]),
+                "ver_num": json_line["ver_num"],
+                "channel": json_line["raw"]["channel"],
+                "coin": json_line["raw"]["data"]["coin"],
+                "raw_time": json_line["raw"]["data"]["time"],
+                "liquidity": sum(
+                    float(bid_or_ask["px"]) * float(bid_or_ask["sz"])
+                    for level in json_line["raw"]["data"]["levels"]
+                    for bid_or_ask in level
+                ),
+                "levels": json.dumps(json_line["raw"]["data"]["levels"])
+            }
+            for line in f
+            for json_line in [json.loads(line)]
+        ]
+    df = pd.DataFrame(data)
+    df["time"] = date
+
+    # Extract highest_bid and lowest_ask from the levels lists
+    df['highest_bid'] = df['levels'].apply(lambda levels: float(json.loads(levels)[0][0]['px']))
+    df['lowest_ask'] = df['levels'].apply(lambda levels: float(json.loads(levels)[1][0]['px']))
+
+    # Calculate the mid price
+    df['mid'] = (df['highest_bid'] + df['lowest_ask']) / 2
+
+    nominal_values = [1000, 3000, 10000]
+
+    # Calculate the slippage for each nominal value
+    for nominal_value in nominal_values:
+        slippage_column = f"slippage_{nominal_value}"
+        df[slippage_column] = df.apply(lambda row: calculate_slippage(row, nominal_value), axis=1)
+
+    aggregated_df = df.groupby(['time', 'coin']).agg(
+        median_liquidity=('liquidity', lambda x: x.median()),
+        median_slippage_1000=('slippage_1000', lambda x: x.median()),
+        median_slippage_3000=('slippage_3000', lambda x: x.median()),
+        median_slippage_10000=('slippage_10000', lambda x: x.median()),
+        mid_price=('mid', lambda x: x.mean()),
+    )
+    aggregated_df = aggregated_df.reset_index()
+    aggregated_df.to_sql("market_data_cache", con=engine, if_exists="append", index=False)
 
 
 def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
     # Reads the file saved by s3 of date and cache table with the new data
     if "market_data" in file_name:
-        update_market_data_cache(db_uri, date)
+        update_market_data_cache(db_uri, date, file_name)
     else:
         engine = create_engine(db_uri)
         with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
@@ -302,7 +355,7 @@ def main():
         if isinstance(latest_date, datetime.datetime):
             latest_date = latest_date.date()
         elif not latest_date:
-            datetime.date.today() - datetime.timedelta(days=30)
+            latest_date = datetime.date.today() - datetime.timedelta(days=30)
 
         dates = generate_dates(latest_date)
         if not len(dates):

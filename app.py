@@ -1525,12 +1525,11 @@ async def get_daily_inflow(
 @app.get("/hyperliquid/liquidity_by_coin")
 @measure_api_latency(endpoint="liquidity_by_coin")
 async def get_liquidity_by_coin(
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        notional_amounts: Optional[List[int]] = Query([1000, 3000, 10000]),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ):
     # Create unique key using filters and endpoint name
-    key = f"liquidity_by_coin_{start_date}_{end_date}_{notional_amounts}"
+    key = f"liquidity_by_coin_{start_date}_{end_date}"
 
     # Check if the data exists in the cache
     cached_data = get_data_from_cache(key)
@@ -1538,43 +1537,56 @@ async def get_liquidity_by_coin(
         return cached_data
 
     async with database.transaction():
-        data = {}
-        for notional in notional_amounts:
-            query = (
-                select(
-                    market_data_cache.c.time,
-                    market_data_cache.c.coin,
-                    func.avg(market_data_cache.c.median_liquidity / notional).label(
-                        "average_liquidity_percentage"
-                    ),
-                )
-                .group_by(market_data_cache.c.time, market_data_cache.c.coin)
-                .order_by(market_data_cache.c.time, market_data_cache.c.coin)
+        query = (
+            select(
+                market_data_cache.c.time,
+                market_data_cache.c.coin,
+                func.avg(market_data_cache.c.mid_price).label("mid_price"),
+                func.percentile_cont(0.5).within_group(
+                    market_data_cache.c.median_liquidity
+                ).label("median_liquidity"),
+                func.percentile_cont(0.5).within_group(
+                    market_data_cache.c.median_slippage_1000
+                ).label("median_slippage_1000"),
+                func.percentile_cont(0.5).within_group(
+                    market_data_cache.c.median_slippage_3000
+                ).label("median_slippage_3000"),
+                func.percentile_cont(0.5).within_group(
+                    market_data_cache.c.median_slippage_10000
+                ).label("median_slippage_10000"),
             )
-            query = apply_filters(query, market_data_cache, start_date, end_date)
+            .select_from(market_data_cache)
+            .group_by(market_data_cache.c.time, market_data_cache.c.coin)
+        )
 
-            results = await database.fetch_all(query)
+        query = apply_filters(query, market_data_cache, start_date, end_date)
 
-            # Collect data
-            for row in results:
-                time = row[0]
-                coin = row[1]
-                average_liquidity_percentage = row[2]
-                if coin not in data:
-                    data[coin] = {}
-                if notional not in data[coin]:
-                    data[coin][notional] = []
-                data[coin][notional].append(
-                    {
-                        "time": time,
-                        "average_liquidity_percentage": average_liquidity_percentage,
-                    }
-                )
+        results = await database.fetch_all(query)
+
+        chart_data = {}
+        for row in results:
+            coin = row["coin"]
+
+            if coin not in chart_data:
+                chart_data[coin] = []
+
+            chart_data[coin].append(
+                {
+                    "time": row["time"],
+                    "mid_price": row["mid_price"],
+                    "median_liquidity": row["median_liquidity"],
+                    "median_slippage_1000": row["median_slippage_1000"],
+                    "median_slippage_3000": row["median_slippage_3000"],
+                    "median_slippage_10000": row["median_slippage_10000"],
+                }
+            )
+
+        chart_data = {"chart_data": chart_data}
 
         # Cache result
-        add_data_to_cache(key, data)
+        add_data_to_cache(key, chart_data)
 
-        return data
+        return chart_data
 
 
 async def get_table_data(
