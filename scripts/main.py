@@ -80,7 +80,6 @@ def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
 
 
 def send_alert(message: str):
-    return
     slack_token = config["slack_token"]
     if slack_token != "":
         client = WebClient(token=slack_token)
