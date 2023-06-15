@@ -973,7 +973,7 @@ async def get_hlp_liquidator_pnl(
             .group_by(subquery.c.time)
         )
 
-        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+        query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
@@ -1039,7 +1039,7 @@ async def get_cumulative_hlp_liquidator_pnl(
             .select_from(subquery)
         )
 
-        query = apply_filters(query, account_values_cache, start_date, end_date, None)
+        query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]

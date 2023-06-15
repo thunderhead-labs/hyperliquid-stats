@@ -25,7 +25,7 @@ table_to_file_name_map = {
 }
 
 # Load configuration from JSON file
-with open("../config.json", "r") as config_file:
+with open("/app/config.json", "r") as config_file:
     config = json.load(config_file)
 
 
