@@ -96,9 +96,9 @@ CREATE TABLE IF NOT EXISTS public.account_values_cache
     "time" timestamp NOT NULL,
     "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
     is_vault BOOLEAN NOT NULL,
-    avg_account_value double precision NOT NULL,
-    avg_cum_vlm double precision NOT NULL,
-    avg_cum_ledger double precision NOT NULL
+    last_account_value double precision NOT NULL,
+    last_cum_vlm double precision NOT NULL,
+    last_cum_ledger double precision NOT NULL
 );
 
 CREATE INDEX idx_account_values_cache
