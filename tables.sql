@@ -91,6 +91,19 @@ CREATE TABLE account_values (
 CREATE INDEX idx_userdata_time ON account_values ("time");
 CREATE INDEX idx_userdata_user ON account_values ("user");
 
+CREATE TABLE IF NOT EXISTS public.account_values_cache
+(
+    "time" timestamp NOT NULL,
+    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
+    is_vault BOOLEAN NOT NULL,
+    avg_account_value double precision NOT NULL,
+    avg_cum_vlm double precision NOT NULL,
+    avg_cum_ledger double precision NOT NULL
+);
+
+CREATE INDEX idx_account_values_cache
+ON public.account_values_cache ("time", "user", is_vault);
+
 CREATE TABLE funding (
     "time" TIMESTAMP WITH TIME ZONE NOT NULL,
     coin character varying(255) COLLATE pg_catalog."default" NOT NULL,
@@ -149,19 +162,6 @@ CREATE TABLE IF NOT EXISTS public.asset_ctxs_cache
 
 CREATE INDEX IF NOT EXISTS idx_asset_ctxs_cache_time ON public.asset_ctxs_cache ("time");
 CREATE INDEX IF NOT EXISTS idx_asset_ctxs_cache_coin ON public.asset_ctxs_cache ("coin");
-
-CREATE TABLE IF NOT EXISTS public.account_values_cache
-(
-    "time" timestamp NOT NULL,
-    "user" character varying(255) COLLATE pg_catalog."default" NOT NULL,
-    is_vault BOOLEAN NOT NULL,
-    sum_account_value double precision NOT NULL,
-    sum_cum_vlm double precision NOT NULL,
-    sum_cum_ledger double precision NOT NULL
-);
-
-CREATE INDEX idx_account_values_cache
-ON public.account_values_cache ("time", "user", is_vault);
 
 CREATE TABLE market_data (
     time TIMESTAMP WITH TIME ZONE NOT NULL,

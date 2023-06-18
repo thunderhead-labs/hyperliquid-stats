@@ -50,6 +50,10 @@ hlp_vault_addresses = [
     "0x63c621a33714ec48660e32f2374895c8026a3a00",
 ]
 
+hlp_addresses = ["0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"]
+liquidated_addresses = ["0x63c621a33714ec48660e32f2374895c8026a3a00"]
+
+
 app = FastAPI()
 scheduler = BackgroundScheduler()
 
@@ -808,14 +812,14 @@ async def get_cumulative_user_pnl(
             select(
                 [
                     account_values_cache.c.time,
-                    account_values_cache.c.sum_account_value,
-                    account_values_cache.c.sum_cum_ledger,
-                    func.lag(account_values_cache.c.sum_account_value)
+                    account_values_cache.c.avg_account_value,
+                    account_values_cache.c.avg_cum_ledger,
+                    func.lag(account_values_cache.c.avg_account_value)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_account_value"),
-                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .label("previous_avg_account_value"),
+                    func.lag(account_values_cache.c.avg_cum_ledger)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_cum_ledger"),
+                    .label("previous_avg_cum_ledger"),
                 ]
             )
             .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
@@ -829,11 +833,11 @@ async def get_cumulative_user_pnl(
                 [
                     subquery.c.time,
                     func.sum(
-                        subquery.c.sum_account_value
-                        - subquery.c.previous_sum_account_value
+                        subquery.c.avg_account_value
+                        - subquery.c.previous_avg_account_value
                         - (
-                                subquery.c.sum_cum_ledger
-                                - subquery.c.previous_sum_cum_ledger
+                                subquery.c.avg_cum_ledger
+                                - subquery.c.previous_avg_cum_ledger
                         )
                     )
                     .over(order_by=subquery.c.time)
@@ -875,14 +879,14 @@ async def get_user_pnl(
             select(
                 [
                     account_values_cache.c.time,
-                    account_values_cache.c.sum_account_value,
-                    account_values_cache.c.sum_cum_ledger,
-                    func.lag(account_values_cache.c.sum_account_value)
+                    account_values_cache.c.avg_account_value,
+                    account_values_cache.c.avg_cum_ledger,
+                    func.lag(account_values_cache.c.avg_account_value)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_account_value"),
-                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .label("previous_avg_account_value"),
+                    func.lag(account_values_cache.c.avg_cum_ledger)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_cum_ledger"),
+                    .label("previous_avg_cum_ledger"),
                 ]
             )
             .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
@@ -896,11 +900,11 @@ async def get_user_pnl(
                 [
                     subquery.c.time,
                     func.sum(
-                        subquery.c.sum_account_value
-                        - subquery.c.previous_sum_account_value
+                        subquery.c.avg_account_value
+                        - subquery.c.previous_avg_account_value
                         - (
-                                subquery.c.sum_cum_ledger
-                                - subquery.c.previous_sum_cum_ledger
+                                subquery.c.avg_cum_ledger
+                                - subquery.c.previous_avg_cum_ledger
                         )
                     ).label("total_pnl"),
                 ]
@@ -925,9 +929,10 @@ async def get_user_pnl(
 async def get_hlp_liquidator_pnl(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        is_hlp: Optional[bool] = True,
 ):
     # Create unique key using filters and endpoint name
-    key = f"hlp_liquidator_pnl_{start_date}_{end_date}"
+    key = f"hlp_liquidator_pnl_{start_date}_{end_date}_{is_hlp}"
 
     # Check if the data exists in the cache
     cached_data = get_data_from_cache(key)
@@ -940,17 +945,17 @@ async def get_hlp_liquidator_pnl(
             select(
                 [
                     account_values_cache.c.time,
-                    account_values_cache.c.sum_account_value,
-                    account_values_cache.c.sum_cum_ledger,
-                    func.lag(account_values_cache.c.sum_account_value)
+                    account_values_cache.c.avg_account_value,
+                    account_values_cache.c.avg_cum_ledger,
+                    func.lag(account_values_cache.c.avg_account_value)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_account_value"),
-                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .label("previous_avg_account_value"),
+                    func.lag(account_values_cache.c.avg_cum_ledger)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_cum_ledger"),
+                    .label("previous_avg_cum_ledger"),
                 ]
             )
-            .where(account_values_cache.c.user.in_(hlp_vault_addresses))
+            .where(account_values_cache.c.user.in_(hlp_addresses if is_hlp else liquidated_addresses))
             .order_by(account_values_cache.c.time)
             .alias("subquery")
         )
@@ -960,11 +965,11 @@ async def get_hlp_liquidator_pnl(
                 [
                     subquery.c.time,
                     func.sum(
-                        subquery.c.sum_account_value
-                        - subquery.c.previous_sum_account_value
+                        subquery.c.avg_account_value
+                        - subquery.c.previous_avg_account_value
                         - (
-                                subquery.c.sum_cum_ledger
-                                - subquery.c.previous_sum_cum_ledger
+                                subquery.c.avg_cum_ledger
+                                - subquery.c.previous_avg_cum_ledger
                         )
                     ).label("total_pnl"),
                 ]
@@ -989,6 +994,7 @@ async def get_hlp_liquidator_pnl(
 async def get_cumulative_hlp_liquidator_pnl(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        is_hlp: Optional[bool] = True,
 ):
     # Create unique key using filters and endpoint name
     key = f"cumulative_hlp_liquidator_pnl_{start_date}_{end_date}"
@@ -1004,17 +1010,17 @@ async def get_cumulative_hlp_liquidator_pnl(
             select(
                 [
                     account_values_cache.c.time,
-                    account_values_cache.c.sum_account_value,
-                    account_values_cache.c.sum_cum_ledger,
-                    func.lag(account_values_cache.c.sum_account_value)
+                    account_values_cache.c.avg_account_value,
+                    account_values_cache.c.avg_cum_ledger,
+                    func.lag(account_values_cache.c.avg_account_value)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_account_value"),
-                    func.lag(account_values_cache.c.sum_cum_ledger)
+                    .label("previous_avg_account_value"),
+                    func.lag(account_values_cache.c.avg_cum_ledger)
                     .over(order_by=account_values_cache.c.time)
-                    .label("previous_sum_cum_ledger"),
+                    .label("previous_avg_cum_ledger"),
                 ]
             )
-            .where(account_values_cache.c.user.in_(hlp_vault_addresses))
+            .where(account_values_cache.c.user.in_(hlp_addresses if is_hlp else liquidated_addresses))
             .order_by(account_values_cache.c.time)
             .alias("subquery")
         )
@@ -1024,11 +1030,11 @@ async def get_cumulative_hlp_liquidator_pnl(
                 [
                     subquery.c.time,
                     func.sum(
-                        subquery.c.sum_account_value
-                        - subquery.c.previous_sum_account_value
+                        subquery.c.avg_account_value
+                        - subquery.c.previous_avg_account_value
                         - (
-                                subquery.c.sum_cum_ledger
-                                - subquery.c.previous_sum_cum_ledger
+                                subquery.c.avg_cum_ledger
+                                - subquery.c.previous_avg_cum_ledger
                         )
                     )
                     .over(order_by=subquery.c.time)

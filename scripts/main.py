@@ -268,15 +268,15 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
         elif "account_values" in file_name:
             df_agg = (
                 df.groupby(["user", "is_vault"])
-                .agg({"account_value": "sum", "cum_vlm": "sum", "cum_ledger": "sum"})
+                .agg({"account_value": "mean", "cum_vlm": "mean", "cum_ledger": "mean"})
                 .reset_index()
             )
             df_agg.columns = [
                 "user",
                 "is_vault",
-                "sum_account_value",
-                "sum_cum_vlm",
-                "sum_cum_ledger",
+                "avg_account_value",
+                "avg_cum_vlm",
+                "avg_cum_ledger",
             ]
             df_agg["time"] = date
             df_agg.to_sql(
