@@ -45,8 +45,8 @@ market_data_cache = Table("market_data_cache", metadata, autoload_with=engine)
 
 hlp_vault_addresses = [
     "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
-    "0x010461c14e146ac35fe42271bdc1134ee31c703a",
-    "0x31ca8395cf837de08b24da3f660e77761dfb974b",
+#    "0x010461c14e146ac35fe42271bdc1134ee31c703a",
+#    "0x31ca8395cf837de08b24da3f660e77761dfb974b",
     "0x63c621a33714ec48660e32f2374895c8026a3a00",
 ]
 
@@ -806,57 +806,19 @@ async def get_cumulative_user_pnl(
     if cached_data:
         return {"chart_data": cached_data}
 
-    async with database.transaction():
-        # Exclude vault addresses and filter on 'is_vault=false'
-        subquery = (
-            select(
-                [
-                    account_values_cache.c.time,
-                    account_values_cache.c.last_account_value,
-                    account_values_cache.c.last_cum_ledger,
-                    func.lag(account_values_cache.c.last_account_value)
-                    .over(order_by=account_values_cache.c.time)
-                    .label("previous_last_account_value"),
-                    func.lag(account_values_cache.c.last_cum_ledger)
-                    .over(order_by=account_values_cache.c.time)
-                    .label("previous_last_cum_ledger"),
-                ]
-            )
-            .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
-            .where(account_values_cache.c.is_vault == False)
-            .order_by(account_values_cache.c.time)
-            .alias("subquery")
-        )
+    user_pnl_data = await get_user_pnl(start_date, end_date)
+    user_pnl_data = user_pnl_data["chart_data"]
 
-        query = (
-            select(
-                [
-                    subquery.c.time,
-                    func.sum(
-                        subquery.c.last_account_value
-                        - subquery.c.previous_last_account_value
-                        - (
-                                subquery.c.last_cum_ledger
-                                - subquery.c.previous_last_cum_ledger
-                        )
-                    )
-                    .over(order_by=subquery.c.time)
-                    .label("cumulative_pnl"),
-                ]
-            )
-            .distinct(subquery.c.time)
-            .select_from(subquery)
-        )
-
-        query = apply_filters(query, subquery, start_date, end_date, None)
-
-        results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
+    cumulative_pnl_data = []
+    cumulative_pnl = 0
+    for row in user_pnl_data:
+        cumulative_pnl += row['total_pnl']
+        cumulative_pnl_data.append({"time": row['time'], "cumulative_pnl": cumulative_pnl})
 
     # Cache result
-    add_data_to_cache(key, chart_data)
+    add_data_to_cache(key, cumulative_pnl_data)
 
-    return {"chart_data": chart_data}
+    return {"chart_data": cumulative_pnl_data}
 
 
 @app.get("/hyperliquid/user_pnl")
@@ -879,13 +841,20 @@ async def get_user_pnl(
             select(
                 [
                     account_values_cache.c.time,
+                    account_values_cache.c.user,
                     account_values_cache.c.last_account_value,
                     account_values_cache.c.last_cum_ledger,
                     func.lag(account_values_cache.c.last_account_value)
-                    .over(order_by=account_values_cache.c.time)
+                    .over(
+                        partition_by=account_values_cache.c.user,
+                        order_by=account_values_cache.c.time,
+                    )
                     .label("previous_last_account_value"),
                     func.lag(account_values_cache.c.last_cum_ledger)
-                    .over(order_by=account_values_cache.c.time)
+                    .over(
+                        partition_by=account_values_cache.c.user,
+                        order_by=account_values_cache.c.time,
+                    )
                     .label("previous_last_cum_ledger"),
                 ]
             )
@@ -899,6 +868,7 @@ async def get_user_pnl(
             select(
                 [
                     subquery.c.time,
+                    subquery.c.user,
                     func.sum(
                         subquery.c.last_account_value
                         - subquery.c.previous_last_account_value
@@ -910,13 +880,110 @@ async def get_user_pnl(
                 ]
             )
             .select_from(subquery)
-            .group_by(subquery.c.time)
+            .group_by(subquery.c.time, subquery.c.user)
+            .order_by(subquery.c.time)
         )
 
         query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
+        chart_data = [
+            {"time": row[0], "user": row[1], "total_pnl": row[2]}
+            for row in results
+            if row[2] != 0
+        ]
+
+        # Sum the PNL for each day across all users
+        summed_chart_data = {}
+        for row in chart_data:
+            time = row["time"]
+            total_pnl = row["total_pnl"]
+            if total_pnl:
+                if time in summed_chart_data:
+                    summed_chart_data[time] += total_pnl
+                else:
+                    summed_chart_data[time] = total_pnl
+
+        # Generate the final chart data
+        final_chart_data = [
+            {"time": time, "total_pnl": total_pnl}
+            for time, total_pnl in summed_chart_data.items()
+        ]
+
+        # Cache result
+    add_data_to_cache(key, final_chart_data)
+
+    return {"chart_data": final_chart_data}
+
+
+@app.get("/hyperliquid/by_user_pnl")
+@measure_api_latency(endpoint="by_user_pnl")
+async def get_by_user_pnl(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"user_pnl_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
+    async with database.transaction():
+        # Exclude vault addresses and filter on 'is_vault=false'
+        subquery = (
+            select(
+                [
+                    account_values_cache.c.time,
+                    account_values_cache.c.user,
+                    account_values_cache.c.last_account_value,
+                    account_values_cache.c.last_cum_ledger,
+                    func.lag(account_values_cache.c.last_account_value)
+                    .over(
+                        partition_by=account_values_cache.c.user,
+                        order_by=account_values_cache.c.time,
+                    )
+                    .label("previous_last_account_value"),
+                    func.lag(account_values_cache.c.last_cum_ledger)
+                    .over(
+                        partition_by=account_values_cache.c.user,
+                        order_by=account_values_cache.c.time,
+                    )
+                    .label("previous_last_cum_ledger"),
+                ]
+            )
+            .where(account_values_cache.c.user.notin_(hlp_vault_addresses))
+            .where(account_values_cache.c.is_vault == False)
+            .order_by(account_values_cache.c.time)
+            .alias("subquery")
+        )
+
+        query = (
+            select(
+                [
+                    subquery.c.time,
+                    subquery.c.user,
+                    func.sum(
+                        subquery.c.last_account_value
+                        - subquery.c.previous_last_account_value
+                        - (
+                            subquery.c.last_cum_ledger
+                            - subquery.c.previous_last_cum_ledger
+                        )
+                    ).label("total_pnl"),
+                ]
+            )
+            .select_from(subquery)
+            .group_by(subquery.c.time, subquery.c.user)
+        )
+
+        query = apply_filters(query, subquery, start_date, end_date, None)
+
+        results = await database.fetch_all(query)
+        chart_data = [
+            {"time": row[0], "user": row[1], "total_pnl": row[2]} for row in results if row[2] != 0
+        ]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -976,6 +1043,7 @@ async def get_hlp_liquidator_pnl(
             )
             .select_from(subquery)
             .group_by(subquery.c.time)
+            .order_by(subquery.c.time)
         )
 
         query = apply_filters(query, subquery, start_date, end_date, None)
