@@ -182,6 +182,7 @@ CREATE TABLE market_data_cache (
     coin VARCHAR(255) NOT NULL,
     mid_price DOUBLE PRECISION NOT NULL,
     median_liquidity DOUBLE PRECISION NOT NULL,
+    median_slippage_0 DOUBLE PRECISION NOT NULL,
     median_slippage_1000 DOUBLE PRECISION NOT NULL,
     median_slippage_3000 DOUBLE PRECISION NOT NULL,
     median_slippage_10000 DOUBLE PRECISION NOT NULL

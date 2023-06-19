@@ -1543,6 +1543,9 @@ async def get_liquidity_by_coin(
                     market_data_cache.c.median_liquidity
                 ).label("median_liquidity"),
                 func.percentile_cont(0.5).within_group(
+                    market_data_cache.c.median_slippage_0
+                ).label("median_slippage_0"),
+                func.percentile_cont(0.5).within_group(
                     market_data_cache.c.median_slippage_1000
                 ).label("median_slippage_1000"),
                 func.percentile_cont(0.5).within_group(
@@ -1572,6 +1575,7 @@ async def get_liquidity_by_coin(
                     "time": row["time"],
                     "mid_price": row["mid_price"],
                     "median_liquidity": row["median_liquidity"],
+                    "median_slippage_0": row["median_slippage_0"],
                     "median_slippage_1000": row["median_slippage_1000"],
                     "median_slippage_3000": row["median_slippage_3000"],
                     "median_slippage_10000": row["median_slippage_10000"],

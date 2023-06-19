@@ -175,7 +175,7 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
     # Calculate the mid price
     df['mid'] = (df['highest_bid'] + df['lowest_ask']) / 2
 
-    nominal_values = [1000, 3000, 10000]
+    nominal_values = [0.01, 1000, 3000, 10000]
 
     # Calculate the slippage for each nominal value
     for nominal_value in nominal_values:
@@ -184,6 +184,7 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
 
     aggregated_df = df.groupby(['time', 'coin']).agg(
         median_liquidity=('liquidity', lambda x: x.median()),
+        median_slippage_0=('slippage_0.01', lambda x: x.median()),
         median_slippage_1000=('slippage_1000', lambda x: x.median()),
         median_slippage_3000=('slippage_3000', lambda x: x.median()),
         median_slippage_10000=('slippage_10000', lambda x: x.median()),
