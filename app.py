@@ -1689,7 +1689,7 @@ async def get_largest_liquidated_notional_by_user(
     table_data = await get_table_data(
         liquidations_cache,
         "user",
-        "sum_liquidated_account_value",
+        "sum_liquidated_ntl_pos",
         start_date,
         end_date,
         None,
