@@ -221,6 +221,8 @@ async def get_total_deposits(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
 ):
+    start_date = None
+    end_date = None
     # Create unique key using filters and endpoint name
     key = f"total_deposits_{start_date}_{end_date}"
 
@@ -249,6 +251,8 @@ async def get_total_withdrawals(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
 ):
+    start_date = None
+    end_date = None
     # Create unique key using filters and endpoint name
     key = f"total_withdrawals_{start_date}_{end_date}"
 

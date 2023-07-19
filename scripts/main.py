@@ -75,11 +75,15 @@ def load_data_to_db(db_uri: str, table_name: str, file_name: str):
 def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
     engine = create_engine(db_uri)
     with engine.connect() as connection:
-        result = connection.execute(text(f"SELECT max(time) FROM {table_name}"))
-        return result.scalar()
+        try:
+            result = connection.execute(text(f"SELECT max(time) FROM {table_name}"))
+            return result.scalar()
+        except:
+            return None
 
 
 def send_alert(message: str):
+    return
     slack_token = config["slack_token"]
     if slack_token != "":
         client = WebClient(token=slack_token)
@@ -347,7 +351,7 @@ def main():
         if isinstance(latest_date, datetime.datetime):
             latest_date = latest_date.date()
         elif not latest_date:
-            latest_date = datetime.date.today() - datetime.timedelta(days=30)
+            latest_date = datetime.date.today() - datetime.timedelta(days=75)
 
         dates = generate_dates(latest_date)
         if not len(dates):
